@@ -33,3 +33,12 @@ jobs:
           tags: eugo-docint:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - run: helm lint charts/eugo-docint
+      - run: helm template ci charts/eugo-docint -f charts/eugo-docint/ci/test-values.yaml > /dev/null
+      - run: helm template ci charts/eugo-docint --set image.repository=r.example/eugo-docint --set autoscaling.enabled=false > /dev/null

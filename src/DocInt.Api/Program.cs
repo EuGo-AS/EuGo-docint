@@ -3,6 +3,7 @@ using DocInt.Api.Configuration;
 using DocInt.Api.Engines;
 using DocInt.Api.Telemetry;
 using DocInt.Api.Validation;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using Serilog;
@@ -58,13 +59,16 @@ try
 
     var app = builder.Build();
 
-    app.MapDefaultEndpoints();
     if (app.Environment.IsDevelopment())
     {
         app.MapOpenApi();
     }
 
     app.MapHealthChecks("/healthz");
+    app.MapHealthChecks("/alive", new HealthCheckOptions
+    {
+        Predicate = r => r.Tags.Contains("live")
+    });
 
     app.MapExtract();
 
@@ -76,7 +80,7 @@ try
     {
         service = "EuGo-docint",
         version,
-        endpoints = new[] { "/v1/extract", "/healthz", "/info" }
+        endpoints = new[] { "/v1/extract", "/healthz", "/alive", "/info" }
     }));
 
     app.Run();

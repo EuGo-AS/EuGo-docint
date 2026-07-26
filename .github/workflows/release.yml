@@ -1,0 +1,101 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "chart-v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore src/DocInt.slnx
+      - run: dotnet build --no-restore src/DocInt.slnx
+      - run: dotnet test --no-build src/DocInt.slnx
+
+  image:
+    if: ${{ !startsWith(github.ref_name, 'chart-') }}
+    runs-on: ubuntu-latest
+    needs: build-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: az acr login --name ${{ vars.ACR_NAME }}
+      - name: Strip v prefix
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ vars.ACR_NAME }}.azurecr.io/eugo-docint:${{ steps.ver.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  chart:
+    runs-on: ubuntu-latest
+    needs: [build-test, image]
+    if: ${{ always() && needs.build-test.result == 'success' && (needs.image.result == 'success' || needs.image.result == 'skipped') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: azure/setup-helm@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: az acr login --name ${{ vars.ACR_NAME }}
+      - name: Resolve versions
+        id: versions
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          CHART_VERSION="$(sed -n 's/^version: //p' charts/eugo-docint/Chart.yaml)"
+          CHART_MM="$(echo "$CHART_VERSION" | cut -d. -f1-2)"
+          if [[ "$TAG" == chart-v* ]]; then
+            TAG_VERSION="${TAG#chart-v}"
+            if [[ "$TAG_VERSION" != "$CHART_VERSION" ]]; then
+              echo "::error::tag $TAG says chart $TAG_VERSION but Chart.yaml says $CHART_VERSION"; exit 1
+            fi
+            APP_VERSION="$(git tag -l "v${CHART_MM}.*" | sort -V | tail -1)"
+            if [[ -z "$APP_VERSION" ]]; then
+              echo "::error::no image tag v${CHART_MM}.* exists to pair this chart with"; exit 1
+            fi
+            APP_VERSION="${APP_VERSION#v}"
+          else
+            APP_VERSION="${TAG#v}"
+            APP_MM="$(echo "$APP_VERSION" | cut -d. -f1-2)"
+            if [[ "$APP_MM" != "$CHART_MM" ]]; then
+              echo "::error::image $APP_VERSION vs chart $CHART_VERSION: major.minor drift"; exit 1
+            fi
+          fi
+          echo "chart_version=$CHART_VERSION" >> "$GITHUB_OUTPUT"
+          echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
+      - name: Package and push chart
+        run: |
+          set -euo pipefail
+          helm package charts/eugo-docint \
+            --version "${{ steps.versions.outputs.chart_version }}" \
+            --app-version "${{ steps.versions.outputs.app_version }}" \
+            --destination /tmp
+          helm push "/tmp/eugo-docint-${{ steps.versions.outputs.chart_version }}.tgz" \
+            "oci://${{ vars.ACR_NAME }}.azurecr.io/helm"

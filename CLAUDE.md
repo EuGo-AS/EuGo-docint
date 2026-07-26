@@ -49,9 +49,10 @@ tests/DocInt.Tests/     contract + golden-file tests (env-gated live smoke)
 └─ golden/              text PDF · scanned PDF · DOCX · PPTX · HTML · BoM XLSX · photo · corrupt file
 tools/make-golden/      one-off generator for the golden fixtures
 Dockerfile              chiseled aspnet, multi-arch (amd64/arm64), mirrors EuGo-mcp's (port 8090)
+charts/eugo-docint/     Helm chart: Deployment, ClusterIP Service, WI ServiceAccount, HPA
 ```
 
-K8s manifests (`deploy/`) are **not** in this repo — deployment is owned by EuGo-infra.
+The Helm chart lives in `charts/eugo-docint` (per the 2026-07-26 design spec, superseding the earlier "no K8s manifests here" note). EuGo-infra still owns cluster provisioning (AKS, ACR, Workload Identity federation) and release execution. Chart checks: `helm lint charts/eugo-docint` and `helm template ci charts/eugo-docint -f charts/eugo-docint/ci/test-values.yaml`. Versioning: chart `major.minor` always equals the image's; chart `patch` is chart-owned; `appVersion` is CI-stamped at package time — never hand-edit it. Release tags: `vX.Y.Z` = image + chart, `chart-vX.Y.P` = chart only.
 
 **Contract v1** (frozen at T2; `/v1` is internal-may-change until EuGo-mcp becomes the second consumer):
 `POST /v1/extract` — multipart, N files + per-file hints (filename, content type, optional purpose hint e.g. `bom`, `photo`) → synchronous
