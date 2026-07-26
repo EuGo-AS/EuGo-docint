@@ -123,6 +123,26 @@ Azure engines activate when configured (user-secrets or env; endpoint without ke
 `DocumentIntelligence:Endpoint`, `AzureOpenAI:Endpoint`, `AzureOpenAI:DeploymentNameVision` (default `gpt-4.1-mini`).
 Unconfigured engines answer with per-file `engine_unconfigured` — the service always boots.
 
+## 🚢 Deploy
+
+Helm chart in [charts/eugo-docint](charts/eugo-docint) — Deployment, ClusterIP service on 8090,
+Workload-Identity ServiceAccount, HPA (CPU 70 %, min 2 / max 6). No ingress: the service is
+cluster-internal by design. Probes: liveness `/alive`, readiness `/healthz`.
+
+```bash
+helm install docint charts/eugo-docint \
+  --set image.repository=<acr>.azurecr.io/eugo-docint \
+  --set serviceAccount.azureClientId=<workload-identity-client-id> \
+  --set azure.documentIntelligence.endpoint=https://<di>.cognitiveservices.azure.com/ \
+  --set azure.openAI.endpoint=https://<aoai>.openai.azure.com/
+# in-cluster URL: http://docint-eugo-docint.<namespace>.svc:8090/v1/extract
+```
+
+Versioning: chart and image share `major.minor`; the chart patch moves independently
+(`chart-v*` tags release chart-only changes). CI stamps `appVersion` — never hand-edit it.
+Tag `vX.Y.Z` → image + chart to ACR; tag `chart-vX.Y.P` → chart only. Cluster provisioning
+(AKS, ACR, identity federation) stays in EuGo-infra.
+
 ## 🧪 Test
 
 ```bash
