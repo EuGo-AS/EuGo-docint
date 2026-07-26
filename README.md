@@ -143,6 +143,14 @@ Versioning: chart and image share `major.minor`; the chart patch moves independe
 Tag `vX.Y.Z` → image + chart to ACR; tag `chart-vX.Y.P` → chart only. Cluster provisioning
 (AKS, ACR, identity federation) stays in EuGo-infra.
 
+**Release prerequisites** — before a tag push can publish, the GitHub repo needs four
+*variables* (Settings → Secrets and variables → Actions → Variables; not secrets — auth is
+OIDC, no stored credentials): `ACR_NAME` (registry name without `.azurecr.io`),
+`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`. The client ID must belong to
+an Entra app/managed identity with a federated credential trusting this repo's GitHub Actions
+OIDC tokens and `AcrPush` on the registry. The ACR itself is provisioned by EuGo-infra —
+until it exists, don't push `v*`/`chart-v*` tags (the release run would just fail).
+
 ## 🧪 Test
 
 ```bash
