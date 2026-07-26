@@ -18,6 +18,14 @@ public class HealthEndpointsTests : IClassFixture<DocIntAppFactory>
     }
 
     [Fact]
+    public async Task Alive_returns_healthy()
+    {
+        var response = await _client.GetAsync("/alive");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("Healthy", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task Info_returns_service_metadata()
     {
         var response = await _client.GetAsync("/info");
@@ -27,6 +35,7 @@ public class HealthEndpointsTests : IClassFixture<DocIntAppFactory>
         Assert.False(string.IsNullOrWhiteSpace(doc.RootElement.GetProperty("version").GetString()));
         var endpoints = doc.RootElement.GetProperty("endpoints").EnumerateArray().Select(e => e.GetString()).ToArray();
         Assert.Contains("/healthz", endpoints);
+        Assert.Contains("/alive", endpoints);
         Assert.Contains("/info", endpoints);
     }
 }
