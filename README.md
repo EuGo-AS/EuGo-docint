@@ -152,4 +152,4 @@ dotnet test --no-build src/DocInt.slnx
 ```
 
 Live smoke against real Azure is env-gated — see CLAUDE.md. Container: `docker build -t eugo-docint .`
-(CI builds linux/amd64 + linux/arm64). Kubernetes deployment lives in the EuGo-infra repo.
+(CI builds linux/amd64 + linux/arm64). Cluster provisioning (AKS, ACR, identity) lives in the EuGo-infra repo; the deployment chart is in `charts/eugo-docint` (see Deploy).
