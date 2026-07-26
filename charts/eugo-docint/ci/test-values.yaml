@@ -1,0 +1,14 @@
+image:
+  repository: creugoexample.azurecr.io/eugo-docint
+  tag: 0.1.0
+serviceAccount:
+  azureClientId: 00000000-0000-0000-0000-000000000000
+azure:
+  documentIntelligence:
+    endpoint: https://example-di.cognitiveservices.azure.com/
+  openAI:
+    endpoint: https://example-aoai.openai.azure.com/
+    deploymentNameVision: gpt-4.1-mini
+extraEnv:
+  - name: DocInt__MaxFileBytes
+    value: "10485760"

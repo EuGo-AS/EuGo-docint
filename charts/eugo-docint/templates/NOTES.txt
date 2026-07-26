@@ -1,0 +1,17 @@
+EuGo-docint {{ .Chart.AppVersion }} deployed (cluster-internal, no ingress).
+
+In-cluster API endpoint:
+  http://{{ include "eugo-docint.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}/v1/extract
+
+Health:  /healthz (readiness, all checks)   /alive (liveness, self only)
+Info:    /info
+{{- if not .Values.azure.documentIntelligence.endpoint }}
+
+NOTE: azure.documentIntelligence.endpoint is unset - PDF/DOCX/PPTX/HTML
+extraction will answer engine_unconfigured per file.
+{{- end }}
+{{- if not .Values.azure.openAI.endpoint }}
+
+NOTE: azure.openAI.endpoint is unset - image description will answer
+engine_unconfigured per file.
+{{- end }}
