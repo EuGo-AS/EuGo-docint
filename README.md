@@ -14,6 +14,104 @@ no document content in logs.
 optional `hints` part `{"<filename>":{"purpose":"bom|photo"}}`. Well-formed requests always return
 `200` with per-file success or error. Also: `GET /healthz`, `GET /info`, OpenAPI JSON in Development.
 
+Limits (configurable via `DocInt:*`): 32 files per request, 50 MB per file, 100 s per-file timeout.
+Wire format: camelCase, lowercase enum values, null fields omitted.
+
+### Single PDF
+
+```bash
+curl -s http://localhost:8090/v1/extract \
+  -F "files=@invoice.pdf;type=application/pdf"
+```
+
+```json
+{
+  "files": [
+    {
+      "name": "invoice.pdf",
+      "kind": "pdf",
+      "markdown": "# Invoice 2026-041\n\nSupplier: Acme GmbH\n…",
+      "warnings": []
+    }
+  ]
+}
+```
+
+### Mixed batch with hints
+
+```bash
+curl -s http://localhost:8090/v1/extract \
+  -F "files=@bom.xlsx;type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" \
+  -F "files=@lens-photo.jpg;type=image/jpeg" \
+  -F 'hints={"bom.xlsx":{"purpose":"bom"},"lens-photo.jpg":{"purpose":"photo"}}'
+```
+
+```json
+{
+  "files": [
+    {
+      "name": "bom.xlsx",
+      "kind": "xlsx",
+      "markdown": "## Sheet1\n\n| Part | Qty | Unit price |\n|---|---|---|\n| UV filter glass | 200 | 3.75 |\n",
+      "tables": [
+        {
+          "name": "Sheet1",
+          "markdown": "| Part | Qty | Unit price |\n|---|---|---|\n| UV filter glass | 200 | 3.75 |\n",
+          "rows": [
+            ["Part", "Qty", "Unit price"],
+            ["UV filter glass", 200, 3.75]
+          ]
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "lens-photo.jpg",
+      "kind": "image",
+      "imageDescription": "A close-up photograph of a cylindrical glass lens element with a violet-tinted coating.",
+      "warnings": []
+    }
+  ]
+}
+```
+
+`tables[].rows` carries typed cells (JSON numbers stay numbers, one table per sheet) — consumers
+should read `rows`, not re-parse the Markdown. Image descriptions are factual observations only.
+
+### Per-file failure inside a 200
+
+A corrupt or unsupported file never fails the request; it gets its own `error` entry:
+
+```json
+{
+  "files": [
+    { "name": "report.docx", "kind": "docx", "markdown": "# Quarterly report\n…", "warnings": [] },
+    {
+      "name": "broken.pdf",
+      "kind": "pdf",
+      "warnings": [],
+      "error": { "code": "corrupt", "message": "file could not be parsed as pdf" }
+    }
+  ]
+}
+```
+
+Error codes: `unsupported_type` · `too_large` · `empty_file` · `corrupt` · `timeout` ·
+`engine_error` · `engine_unconfigured`.
+
+### Request-level 400
+
+Only a malformed *request* (not a bad file) returns non-200 — no `files` parts, body not
+multipart, too many files, oversized `hints` — as an RFC 7807 problem:
+
+```json
+{
+  "title": "Malformed extract request",
+  "detail": "request contains no file parts named 'files'",
+  "status": 400
+}
+```
+
 ## ▶️ Run
 
 ```bash
