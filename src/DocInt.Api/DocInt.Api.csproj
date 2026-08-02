@@ -10,8 +10,11 @@
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
     <!-- Pinned above the transitive floor (2.0.0) pulled in by Microsoft.AspNetCore.OpenApi 10.0.9/10.0.10 to
          resolve NU1903 GHSA-v5pm-xwqc-g5wc (high severity). Lowest patched version is 2.7.5; 2.7.6 is the
-         latest stable patch on that line. -->
-    <PackageReference Include="Microsoft.OpenApi" Version="3.9.0" />
+         latest stable patch on that line.
+         Ceiling is real — do NOT move to 3.x: ASP.NET Core 10's OpenAPI XML-comment source generator targets
+         the 2.x surface and assigns `mediaType.Example`, which 3.x narrowed to the read-only
+         `IOpenApiMediaType.Example`, so the generated code fails to compile (CS0200). -->
+    <PackageReference Include="Microsoft.OpenApi" Version="2.7.6" />
     <PackageReference Include="Serilog" Version="4.4.0" />
     <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0" />
     <PackageReference Include="Serilog.Settings.Configuration" Version="10.0.1" />
