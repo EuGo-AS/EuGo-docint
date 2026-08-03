@@ -27,7 +27,9 @@ azure:
     # service answers engine_unconfigured per file (designed degraded mode)
     endpoint: ""
   openAI:
-    # Sets env AzureOpenAI__Endpoint; empty omits the var
+    # Sets env AzureOpenAI__Endpoint, e.g. https://<resource>.openai.azure.com/ — the resource
+    # root only; the SDK appends /openai/deployments/<name>/chat/completions. Empty omits the
+    # var and image files answer engine_unconfigured (designed degraded mode)
     endpoint: ""
     # Sets env AzureOpenAI__DeploymentNameVision; empty here omits the var and the image's
     # appsettings.json supplies gpt-5.4-mini. A name is required once openAI.endpoint is set,
@@ -35,9 +37,24 @@ azure:
     # failing every image request.
     deploymentNameVision: ""
 
-# Verbatim extra env entries, e.g. DocInt__MaxFileBytes overrides:
-# - name: DocInt__MaxFileBytes
-#   value: "10485760"
+# Service limits. Each empty value omits its DocInt__* env var, leaving the image's
+# appsettings.json default in force — the numbers are deliberately not repeated here, so
+# there is nothing to drift. Set one to override it for this release. Non-positive values
+# fail validation at pod start rather than falling back to a default.
+docint:
+  # Per-file size cap, in bytes; a larger file gets a per-file too_large error inside a 200
+  maxFileBytes: ""
+  # Files accepted per request; more than this is a request-level 400
+  maxFilesPerRequest: ""
+  # Per-file engine timeout, in seconds
+  perFileTimeoutSeconds: ""
+  # Files processed concurrently — raise with the memory limit, not alone
+  maxParallelism: ""
+
+# Verbatim extra env entries, for keys with no first-class value above, e.g.:
+# - name: Serilog__MinimumLevel__Default
+#   value: "Debug"
+# Appended after the entries above — don't also set a key here that has its own value.
 extraEnv: []
 
 resources:

@@ -7,5 +7,5 @@ kubeVersion: ">=1.30.0-0"
 # - version's major.minor always equals the Docker image's major.minor
 # - version's patch is chart-owned (several chart versions per image is normal)
 # - appVersion is stamped by CI at package time (helm package --app-version); never hand-edit
-version: 0.1.0
+version: 0.1.1
 appVersion: "0.1.0"

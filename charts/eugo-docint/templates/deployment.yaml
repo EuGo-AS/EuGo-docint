@@ -60,6 +60,18 @@ spec:
           {{- with .Values.azure.openAI.deploymentNameVision }}
           {{- $env = append $env (dict "name" "AzureOpenAI__DeploymentNameVision" "value" .) }}
           {{- end }}
+          {{- with .Values.docint.maxFileBytes }}
+          {{- $env = append $env (dict "name" "DocInt__MaxFileBytes" "value" (printf "%d" (int64 .))) }}
+          {{- end }}
+          {{- with .Values.docint.maxFilesPerRequest }}
+          {{- $env = append $env (dict "name" "DocInt__MaxFilesPerRequest" "value" (printf "%d" (int64 .))) }}
+          {{- end }}
+          {{- with .Values.docint.perFileTimeoutSeconds }}
+          {{- $env = append $env (dict "name" "DocInt__PerFileTimeoutSeconds" "value" (printf "%d" (int64 .))) }}
+          {{- end }}
+          {{- with .Values.docint.maxParallelism }}
+          {{- $env = append $env (dict "name" "DocInt__MaxParallelism" "value" (printf "%d" (int64 .))) }}
+          {{- end }}
           {{- $env = concat $env .Values.extraEnv }}
           {{- with $env }}
           env:

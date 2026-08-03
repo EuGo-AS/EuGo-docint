@@ -103,7 +103,13 @@ azure:
     endpoint: ""            # → env AzureOpenAI__Endpoint
     deploymentNameVision: "" # empty → the image's appsettings.json (gpt-5.4-mini)
 
-extraEnv: []                # verbatim env entries, e.g. DocInt__MaxFileBytes overrides
+docint:                     # each empty → the image's appsettings.json default; set one to
+  maxFileBytes: ""          # override it via the matching DocInt__* env var. Values are
+  maxFilesPerRequest: ""    # rendered with int64 — a bare YAML number reaches Helm as a
+  perFileTimeoutSeconds: "" # float64 and would otherwise emit 1.048576e+07.
+  maxParallelism: ""
+
+extraEnv: []                # verbatim env entries, for keys with no first-class value above
 
 resources:
   requests: { cpu: 250m, memory: 512Mi }
@@ -116,6 +122,10 @@ service:
 - Empty Azure endpoints omit the env var entirely; the service boots and answers
   `engine_unconfigured` per file — its designed degraded mode. No value is required for
   the chart to render except `image.repository`.
+- The same omit-when-empty rule carries the `docint:` limits, so the chart never restates
+  the shipped numbers — `appsettings.json` stays their single source of truth. A
+  non-positive override fails `ValidateOnStart` at pod start rather than silently
+  falling back.
 - Port 8090 is baked into the image's `appsettings.json` (Kestrel endpoint) — the chart
   sets no port env var; `service.port` only controls the Service's exposed port.
 - Memory limit is deliberately generous: requests buffer fully in memory (≤50 MB/file,
