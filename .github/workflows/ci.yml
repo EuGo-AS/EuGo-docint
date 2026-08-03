@@ -1,10 +1,24 @@
 name: ci
 
+# paths-ignore is workflow-level, so a docs-only commit skips ALL jobs, not just the
+# image build. A commit touching docs AND code still runs everything -- it only skips
+# when every changed file matches. Caveat: main has no branch protection today; if `ci`
+# is ever made a required status check, docs-only PRs would hang unreported.
 on:
   push:
     branches: [main]
+    paths-ignore: ['**.md', 'docs/**']
   pull_request:
     branches: [main]
+    paths-ignore: ['**.md', 'docs/**']
+
+# Supersede an in-flight run for the same ref instead of building that ref twice.
+# PR refs (refs/pull/N/merge) and main hash to different groups, so a PR never cancels
+# main -- but two pushes to main in quick succession do cancel the older run, which then
+# reports "cancelled" instead of a pass/fail for that commit.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-test:
@@ -25,10 +39,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
+      # amd64 only here: CI's job is to prove the Dockerfile still builds, and the SDK
+      # stage is cross-compiled (--platform=$BUILDPLATFORM + -a $TARGETARCH), so a
+      # second target arch re-runs restore/publish for very little extra signal. The
+      # arm64 leg is validated where it ships -- release.yml keeps linux/amd64,arm64.
+      # setup-qemu above is dead weight while this is single-arch; kept deliberately so
+      # re-adding a platform here is a one-line change.
       - uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: false
           tags: eugo-docint:ci
           cache-from: type=gha
