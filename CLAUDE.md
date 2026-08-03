@@ -46,8 +46,8 @@ src/DocInt.slnx
 ├─ AppHost/             Aspire orchestrator (Aspire.AppHost.Sdk/13.1.0), resource "docint"
 └─ ServiceDefaults/     stock Aspire defaults (OTel, health, resilience)
 tests/DocInt.Tests/     contract + golden-file tests (env-gated live smoke)
-└─ golden/              text PDF · scanned PDF · DOCX · PPTX · HTML · BoM XLSX · photo · corrupt file
-tools/make-golden/      one-off generator for the golden fixtures
+└─ golden/              12 committed binaries: text PDF · scanned PDF · DOCX · PPTX · HTML · BoM XLSX · 3 XLSX edge cases · photo · corrupt · unknown bytes
+tools/make-golden/      generator for the golden fixtures (see its README)
 Dockerfile              chiseled aspnet, multi-arch (amd64/arm64), mirrors EuGo-mcp's (port 8090)
 charts/eugo-docint/     Helm chart: Deployment, ClusterIP Service, WI ServiceAccount, HPA
 ```
@@ -98,4 +98,4 @@ export AzureOpenAI__ApiKey=<key>                 # omit to use DefaultAzureCrede
 dotnet test --no-build src/DocInt.slnx --filter "FullyQualifiedName~LiveSmokeTests"
 ```
 
-Golden fixtures are committed binaries; regenerate only deliberately with `dotnet run --project tools/make-golden`.
+Golden fixtures are committed binaries; regenerate only deliberately with `dotnet run --project tools/make-golden`, **from the repo root** (the default output path is cwd-relative). See `tools/make-golden/README.md` for the regenerate-to-a-scratch-dir workflow, why a no-op run still rewrites most fixtures, and why a change touching `ImageFixtures.cs` must be verified against the live suite rather than the offline one.
