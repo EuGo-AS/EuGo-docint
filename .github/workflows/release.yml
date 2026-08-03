@@ -92,12 +92,28 @@ jobs:
           fi
           echo "chart_version=$CHART_VERSION" >> "$GITHUB_OUTPUT"
           echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
-      - name: Package and push chart
+      - name: Package chart
         run: |
           set -euo pipefail
           helm package charts/eugo-docint \
             --version "${{ steps.versions.outputs.chart_version }}" \
             --app-version "${{ steps.versions.outputs.app_version }}" \
             --destination /tmp
+      # `helm package` validates Chart.yaml metadata but never renders templates -- a chart whose
+      # templates cannot render packages with exit 0 and would only fail at `helm install`. Render
+      # the packaged artifact (not the working tree) so the exact bytes bound for ACR are proven;
+      # same two value sets as ci.yml's chart-lint job, covering the HPA-on and HPA-off branches.
+      # On a v* tag this runs after the image push, so a failure here leaves a published image with
+      # no chart; on a chart-v* tag the image job is skipped and nothing has been published yet.
+      - name: Validate packaged chart
+        run: |
+          set -euo pipefail
+          TGZ="/tmp/eugo-docint-${{ steps.versions.outputs.chart_version }}.tgz"
+          helm lint "$TGZ"
+          helm template ci "$TGZ" -f charts/eugo-docint/ci/test-values.yaml > /dev/null
+          helm template ci "$TGZ" --set image.repository=r.example/eugo-docint --set autoscaling.enabled=false > /dev/null
+      - name: Push chart
+        run: |
+          set -euo pipefail
           helm push "/tmp/eugo-docint-${{ steps.versions.outputs.chart_version }}.tgz" \
             "oci://${{ vars.ACR_NAME }}.azurecr.io/helm"

@@ -56,7 +56,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  chart:
+  # Lint and render only -- no `helm package`, no `helm push`. Nothing is published from ci.yml;
+  # the chart is packaged and pushed solely by release.yml on a v* / chart-v* tag.
+  chart-lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
