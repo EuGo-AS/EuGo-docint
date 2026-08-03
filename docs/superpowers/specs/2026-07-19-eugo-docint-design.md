@@ -60,6 +60,30 @@ Credentials per client: endpoint + `ApiKey` configured → key credential; endpo
 
 These defaults live **only** in `src/DocInt.Api/appsettings.json` — neither `DocIntOptions` nor `AzureOpenAIOptions` carries a value-bearing property initializer. An omitted or non-positive `DocInt:*` value therefore fails `ValidateOnStart` at boot rather than falling back to a second set of defaults hidden in code. `AzureOpenAI:DeploymentNameVision` is required only once `AzureOpenAI:Endpoint` is set — blank-with-no-endpoint stays legal, since that is the stub-first degraded mode above.
 
+### Azure resource shape (amended 2026-08-04)
+
+The two endpoints address **two different services**, and only the Azure OpenAI side has a deployment: `prebuilt-layout` is a built-in model named in the request body, never provisioned. This service reads two independent endpoint strings and works with either resource layout below — the choice belongs to EuGo-infra.
+
+**Decision: consolidate onto one Azure AI Foundry resource (`kind: AIServices`)**, subject to the two gates below. It buys one resource to provision, one custom subdomain, one Workload Identity federation and one `Cognitive Services User` role assignment instead of two, and one EU region and diagnostics surface — and it follows Microsoft's direction of upgrading `kind: OpenAI` resources to `kind: AIServices` in place.
+
+A Foundry resource exposes its capabilities over **three FQDNs** — `{custom-domain}.openai.azure.com`, `{custom-domain}.services.ai.azure.com`, `{custom-domain}.cognitiveservices.azure.com` — so consolidation still means two *different* hostnames in config, sharing a stem:
+
+```
+DocumentIntelligence__Endpoint=https://<name>.cognitiveservices.azure.com/
+AzureOpenAI__Endpoint=https://<name>.openai.azure.com/
+```
+
+A **custom subdomain is mandatory**, not optional: Entra ID authentication requires one and cannot use regional endpoints, and this service uses `DefaultAzureCredential` whenever the API key is omitted — the Workload-Identity-on-AKS path. Create with `--custom-domain <name>`.
+
+Two gates to clear before provisioning, both cheap to test and both able to block after the fact:
+
+1. **Region.** `prebuilt-layout` and the `gpt-5.4-mini` deployment must both be available in the *same* EU region. Model availability varies by region; separate resources can straddle two regions, one resource cannot.
+2. **Entra on the Document Intelligence data plane.** The Document Intelligence quickstart still states *"a single-service resource is required for Microsoft Entra authentication"*, while the authentication page and Microsoft's own `AIServices` example present the custom subdomain as the requirement with no single-service carve-out. Unresolved in the docs. Verify against a throwaway resource before committing — a failure here surfaces as 401 on every PDF at runtime, not at deploy time.
+
+If either gate fails, keep two standalone resources (`kind: FormRecognizer` + `kind: OpenAI`). That is also the arrangement with the smaller blast radius: the per-engine `engine_unconfigured` degradation still works either way, but behind one resource a single RBAC, network or region fault takes out PDF *and* image extraction together.
+
+If private endpoints are in play, all three FQDNs must resolve, and the private link endpoint must be recreated for the `services.ai.azure.com` and `cognitiveservices.azure.com` IP configurations.
+
 ## Wire contract v1 (frozen; `/v1` is internal-may-change until EuGo-mcp is the second consumer)
 
 ### Request
