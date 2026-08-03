@@ -46,8 +46,7 @@ public class ExtractionServiceTests
     [Fact]
     public async Task Respects_parallelism_cap_and_preserves_request_order()
     {
-        var options = Microsoft.Extensions.Options.Options.Create(
-            new DocIntOptions { MaxParallelism = 2 });
+        var options = TestOptions.Wrapped(maxParallelism: 2);
         var engine = new CountingEngine();
         var service = new ExtractionService(
             new EngineRouter([engine], options), options, TestTelemetry(), NullLogger<ExtractionService>.Instance);
@@ -69,8 +68,7 @@ public class ExtractionServiceTests
     [Fact]
     public async Task Timeout_produces_per_file_timeout_error()
     {
-        var options = Microsoft.Extensions.Options.Options.Create(
-            new DocIntOptions { PerFileTimeoutSeconds = 1 });
+        var options = TestOptions.Wrapped(perFileTimeoutSeconds: 1);
         var hanging = new FakeHangingEngine();
         var service = new ExtractionService(
             new EngineRouter([hanging], options), options, TestTelemetry(), NullLogger<ExtractionService>.Instance);
@@ -94,7 +92,7 @@ public class ExtractionServiceTests
     [Fact]
     public async Task Stray_operation_canceled_exception_becomes_per_file_engine_error()
     {
-        var options = Microsoft.Extensions.Options.Options.Create(new DocIntOptions());
+        var options = TestOptions.Wrapped();
         var engine = new StrayCancellationEngine();
         var service = new ExtractionService(
             new EngineRouter([engine], options), options, TestTelemetry(), NullLogger<ExtractionService>.Instance);

@@ -29,7 +29,10 @@ azure:
   openAI:
     # Sets env AzureOpenAI__Endpoint; empty omits the var
     endpoint: ""
-    # Sets env AzureOpenAI__DeploymentNameVision; empty uses the app default (gpt-4.1-mini)
+    # Sets env AzureOpenAI__DeploymentNameVision; empty here omits the var and the image's
+    # appsettings.json supplies gpt-5.4-mini. A name is required once openAI.endpoint is set,
+    # so blanking it explicitly (via extraEnv) fails validation at pod start rather than
+    # failing every image request.
     deploymentNameVision: ""
 
 # Verbatim extra env entries, e.g. DocInt__MaxFileBytes overrides:

@@ -8,7 +8,7 @@ azure:
     endpoint: https://example-di.cognitiveservices.azure.com/
   openAI:
     endpoint: https://example-aoai.openai.azure.com/
-    deploymentNameVision: gpt-4.1-mini
+    deploymentNameVision: gpt-5.4-mini
 extraEnv:
   - name: DocInt__MaxFileBytes
     value: "10485760"

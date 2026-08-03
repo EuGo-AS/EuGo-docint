@@ -9,7 +9,7 @@ namespace DocInt.Tests;
 public class MultipartReaderTests
 {
     private static MultipartExtractRequestReader Reader(DocIntOptions? options = null) =>
-        new(Microsoft.Extensions.Options.Options.Create(options ?? new DocIntOptions()));
+        new(Microsoft.Extensions.Options.Options.Create(options ?? TestOptions.DocInt()));
 
     private static async Task<HttpRequest> RequestOf(MultipartFormDataContent form)
     {
@@ -53,7 +53,7 @@ public class MultipartReaderTests
     public async Task Oversized_file_gets_too_large_error()
     {
         using var form = Multipart.Form(("big.pdf", TestBytes.Pdf, "application/pdf"));
-        var items = await Reader(new DocIntOptions { MaxFileBytes = 4 }).ReadAsync(await RequestOf(form), CancellationToken.None);
+        var items = await Reader(TestOptions.DocInt(maxFileBytes: 4)).ReadAsync(await RequestOf(form), CancellationToken.None);
         Assert.Equal(ErrorCodes.TooLarge, items[0].Error!.Code);
     }
 
@@ -88,7 +88,7 @@ public class MultipartReaderTests
             ("b.pdf", TestBytes.Pdf, "application/pdf"),
             ("c.pdf", TestBytes.Pdf, "application/pdf"));
         await Assert.ThrowsAsync<BadExtractRequestException>(async () =>
-            await Reader(new DocIntOptions { MaxFilesPerRequest = 2 }).ReadAsync(await RequestOf(many), CancellationToken.None));
+            await Reader(TestOptions.DocInt(maxFilesPerRequest: 2)).ReadAsync(await RequestOf(many), CancellationToken.None));
 
         // not multipart
         var context = new DefaultHttpContext();

@@ -1,7 +1,38 @@
 using System.Net.Http.Headers;
 using System.Text;
+using DocInt.Api.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace DocInt.Tests;
+
+/// <summary>
+/// DocIntOptions carries no property initializers — appsettings.json owns the shipped defaults —
+/// so tests that construct the options directly, bypassing configuration, must state every limit
+/// they rely on. Every value below is deliberately different from the shipped one, so a fixture
+/// can never be mistaken for a default and a change to appsettings.json can never leave a stale
+/// copy here. The shipped values are asserted from configuration in OptionsTests.
+/// </summary>
+public static class TestOptions
+{
+    public static DocIntOptions DocInt(
+        long maxFileBytes = 1_048_576,
+        int maxFilesPerRequest = 8,
+        int perFileTimeoutSeconds = 30,
+        int maxParallelism = 2) => new()
+        {
+            MaxFileBytes = maxFileBytes,
+            MaxFilesPerRequest = maxFilesPerRequest,
+            PerFileTimeoutSeconds = perFileTimeoutSeconds,
+            MaxParallelism = maxParallelism
+        };
+
+    public static IOptions<DocIntOptions> Wrapped(
+        long maxFileBytes = 1_048_576,
+        int maxFilesPerRequest = 8,
+        int perFileTimeoutSeconds = 30,
+        int maxParallelism = 2) =>
+        Options.Create(DocInt(maxFileBytes, maxFilesPerRequest, perFileTimeoutSeconds, maxParallelism));
+}
 
 public static class TestBytes
 {

@@ -52,11 +52,13 @@ Credentials per client: endpoint + `ApiKey` configured → key credential; endpo
 | --- | --- | --- |
 | `DocumentIntelligence:Endpoint`, `:ApiKey` | — | DI resource; key optional |
 | `AzureOpenAI:Endpoint`, `:ApiKey` | — | AOAI/Foundry resource; key optional |
-| `AzureOpenAI:DeploymentNameVision` | `gpt-4.1-mini` | vision deployment |
+| `AzureOpenAI:DeploymentNameVision` | `gpt-5.4-mini` | vision deployment |
 | `DocInt:MaxFileBytes` | 52 428 800 (50 MB) | per-file cap |
 | `DocInt:MaxFilesPerRequest` | 32 | request cap |
 | `DocInt:PerFileTimeoutSeconds` | 100 | per-file engine timeout |
 | `DocInt:MaxParallelism` | 4 | files processed concurrently |
+
+These defaults live **only** in `src/DocInt.Api/appsettings.json` — neither `DocIntOptions` nor `AzureOpenAIOptions` carries a value-bearing property initializer. An omitted or non-positive `DocInt:*` value therefore fails `ValidateOnStart` at boot rather than falling back to a second set of defaults hidden in code. `AzureOpenAI:DeploymentNameVision` is required only once `AzureOpenAI:Endpoint` is set — blank-with-no-endpoint stays legal, since that is the stub-first degraded mode above.
 
 ## Wire contract v1 (frozen; `/v1` is internal-may-change until EuGo-mcp is the second consumer)
 

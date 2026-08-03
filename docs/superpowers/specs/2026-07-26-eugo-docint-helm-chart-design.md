@@ -101,7 +101,7 @@ azure:
     endpoint: ""            # → env DocumentIntelligence__Endpoint
   openAI:
     endpoint: ""            # → env AzureOpenAI__Endpoint
-    deploymentNameVision: "" # empty → app default (gpt-4.1-mini)
+    deploymentNameVision: "" # empty → the image's appsettings.json (gpt-5.4-mini)
 
 extraEnv: []                # verbatim env entries, e.g. DocInt__MaxFileBytes overrides
 

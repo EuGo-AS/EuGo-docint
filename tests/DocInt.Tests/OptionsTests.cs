@@ -1,4 +1,6 @@
 using DocInt.Api.Configuration;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -6,16 +8,67 @@ namespace DocInt.Tests;
 
 public class OptionsTests
 {
+    // appsettings.json is the single source of truth for the limits: DocIntOptions carries no
+    // property initializers, so these values can only come from the shipped config file.
     [Fact]
-    public void Defaults_match_the_spec()
+    public void Appsettings_supplies_the_spec_defaults()
     {
-        var o = new DocIntOptions();
+        using var factory = new DocIntAppFactory();
+        var o = factory.Services.GetRequiredService<IOptions<DocIntOptions>>().Value;
         Assert.Equal(52_428_800, o.MaxFileBytes);
         Assert.Equal(32, o.MaxFilesPerRequest);
         Assert.Equal(100, o.PerFileTimeoutSeconds);
         Assert.Equal(4, o.MaxParallelism);
         Assert.Equal(52_428_800L * 32 + 1_048_576, o.MaxRequestBytes);
-        Assert.Equal("gpt-4.1-mini", new AzureOpenAIOptions().DeploymentNameVision);
+        Assert.Equal("gpt-5.4-mini",
+            factory.Services.GetRequiredService<IOptions<AzureOpenAIOptions>>().Value.DeploymentNameVision);
+    }
+
+    // The vision deployment name is required only once an endpoint exists: AzureVisionChatClient
+    // returns early on a blank endpoint, so a name is meaningless without one. Blank-with-endpoint
+    // used to reach GetChatClient(""), failing every image request; it now fails at boot instead.
+    // Driven through IStartupValidator rather than WebApplicationFactory: a failed factory boot
+    // surfaces as ObjectDisposedException, which would pass for any startup failure at all.
+    [Fact]
+    public void Blank_vision_deployment_with_endpoint_fails_validation()
+    {
+        var ex = Assert.Throws<OptionsValidationException>(() => Validate(
+            ("AzureOpenAI:Endpoint", "https://aoai.example"),
+            ("AzureOpenAI:DeploymentNameVision", "")));
+        Assert.Contains("DeploymentNameVision", ex.Message);
+
+        // Control: same endpoint, name present — proves the blank name is what fails, not the helper.
+        Validate(("AzureOpenAI:Endpoint", "https://aoai.example"),
+            ("AzureOpenAI:DeploymentNameVision", "gpt-5.4-mini"));
+    }
+
+    private static void Validate(params (string Key, string Value)[] settings)
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Configuration.AddInMemoryCollection(
+            settings.Select(s => new KeyValuePair<string, string?>(s.Key, s.Value)));
+        builder.AddDocIntOptions();
+        using var app = builder.Build();
+        app.Services.GetRequiredService<IStartupValidator>().Validate();
+    }
+
+    // ...and the stub-first path is untouched: no endpoint, no name, still boots.
+    [Fact]
+    public void Blank_vision_deployment_without_endpoint_still_boots()
+    {
+        using var factory = new BlankVisionDeploymentFactory(endpoint: null);
+        var o = factory.Services.GetRequiredService<IOptions<AzureOpenAIOptions>>().Value;
+        Assert.True(string.IsNullOrEmpty(o.DeploymentNameVision));
+    }
+
+    private sealed class BlankVisionDeploymentFactory(string? endpoint) : DocIntAppFactory
+    {
+        protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
+        {
+            builder.UseSetting("AzureOpenAI:DeploymentNameVision", "");
+            if (endpoint is not null) builder.UseSetting("AzureOpenAI:Endpoint", endpoint);
+            base.ConfigureWebHost(builder);
+        }
     }
 
     [Fact]
