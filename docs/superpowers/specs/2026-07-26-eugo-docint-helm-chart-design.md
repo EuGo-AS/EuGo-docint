@@ -7,6 +7,11 @@ note in `CLAUDE.md`, for the Helm chart only. EuGo-infra still owns cluster prov
 (AKS, ACR, Workload Identity federation) and release execution; this repo now owns the
 chart that describes how docint runs.
 
+**Amended 2026-08-03:** §7 and §8 track the implemented workflows — `ci.yml`'s chart job is
+named `chart-lint` (it publishes nothing), and `release.yml` renders the packaged `.tgz`
+between `helm package` and `helm push`. The dated plan under `docs/superpowers/plans/` is an
+execution record and is deliberately left at its original wording.
+
 ## Goals
 
 - A Helm chart at `charts/eugo-docint` that deploys the service to AKS (target
@@ -157,16 +162,18 @@ acceptable; min 2 covers availability, and target/max are values-tunable.
 
 ## 7. CI (GitHub Actions)
 
-`ci.yml` (existing, PR + main) gains a chart job alongside `build-test`:
+`ci.yml` (existing, PR + main) gains a `chart-lint` job alongside `build-test`:
 `helm lint charts/eugo-docint` and `helm template` with `ci/test-values.yaml` (render
-must succeed; offline, no cluster).
+must succeed; offline, no cluster). Lint and render only — no `helm package`, no
+`helm push`. `release.yml` is the sole publisher.
 
 New `release.yml`, triggered by tags:
 
 - **`v*` (image release):** build-test gate → multi-arch buildx push to ACR as
   `eugo-docint:<version>` → chart job: assert `Chart.yaml` `major.minor` matches the tag's
-  (fail loudly on drift), `helm package --app-version <version>`, `helm push` to the ACR
-  OCI repo (`oci://<acr>.azurecr.io/helm/eugo-docint`).
+  (fail loudly on drift), `helm package --app-version <version>`, render the packaged
+  `.tgz` (`helm lint` + the same two `helm template` value sets as `chart-lint`), then
+  `helm push` to the ACR OCI repo (`oci://<acr>.azurecr.io/helm/eugo-docint`).
 - **`chart-v*` (chart-only release):** package `Chart.yaml`'s version with
   `--app-version` = highest existing `v<X.Y>.*` git tag of the same `major.minor`, push
   the chart only.
@@ -179,7 +186,10 @@ New `release.yml`, triggered by tags:
 - API change: the enforced gate — `dotnet restore src/DocInt.slnx` →
   `dotnet build --no-restore` → `dotnet test --no-build` — with the new `/alive` test.
 - Chart: `helm lint` + `helm template charts/eugo-docint -f charts/eugo-docint/ci/test-values.yaml`
-  locally and in CI. No live-cluster testing in this repo.
+  locally and in CI, and again against the packaged `.tgz` in `release.yml` before it is
+  pushed — `helm package` validates `Chart.yaml` metadata but never renders templates, so a
+  chart whose templates cannot render packages with exit 0 and would first fail at
+  `helm install`. No live-cluster testing in this repo.
 
 ## 9. Documentation updates
 

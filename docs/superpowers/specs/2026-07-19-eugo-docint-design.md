@@ -25,7 +25,8 @@ tests/DocInt.Tests/     xUnit; contract + golden + env-gated live smoke
 └─ golden/              committed binary fixtures (see Testing)
 tools/make-golden/      one-off generator for the golden fixtures
 Dockerfile              chiseled aspnet, multi-arch (amd64/arm64), mirrors EuGo-mcp's
-.github/workflows/ci.yml   build+test job · multi-arch docker job
+.github/workflows/ci.yml   build+test · docker (amd64, push: false) · chart-lint
+.github/workflows/release.yml  v* / chart-v* tags: image + chart to ACR
 ```
 
 All projects `net10.0`, `Nullable` + `ImplicitUsings` enabled.
@@ -142,10 +143,13 @@ interface IExtractionEngine {
 
 ## CI & delivery
 
-GitHub Actions (`mchudinov/EuGo-docint`), `.github/workflows/ci.yml`, on push/PR to `main` — two jobs:
+GitHub Actions (`EuGo-AS/EuGo-docint`), `.github/workflows/ci.yml`, on push/PR to `main` — three jobs. **build-test** and **chart-lint** start in parallel; only **docker** has a `needs:` (on build-test):
 
 1. **build-test** — restore → build `--no-restore` → test `--no-build` against `src/DocInt.slnx` (live-smoke tests self-skip: no `DOCINT_LIVE_TESTS` in CI).
-2. **docker** — **multi-arch image build for `linux/amd64` + `linux/arm64`** (user directive 2026-07-19) via `docker/setup-qemu-action` + `docker/setup-buildx-action` + `docker/build-push-action` with `platforms: linux/amd64,linux/arm64`, `push: false`. Build-only validation; pushing to ACR is EuGo-infra's CD job.
+2. **docker** — image build via `docker/setup-qemu-action` + `docker/setup-buildx-action` + `docker/build-push-action`, `push: false`; build-only validation. **Amended 2026-08-03:** CI builds `linux/amd64` only. The multi-arch directive of 2026-07-19 (`linux/amd64` + `linux/arm64`) now lives in `release.yml`, which is where the image actually ships — CI's job is to prove the Dockerfile still builds, and the cross-publish pattern below means a second target arch mostly re-runs restore/publish for little extra signal.
+3. **chart-lint** — `helm lint` plus two `helm template` renders of `charts/eugo-docint` (added by the 2026-07-26 Helm chart work). Publishes nothing.
+
+**Amended 2026-08-03:** "pushing to ACR is EuGo-infra's CD job" no longer holds. Since the 2026-07-26 Helm chart work this repo publishes image *and* chart to ACR itself, from `.github/workflows/release.yml` on `v*` / `chart-v*` tags — see `docs/superpowers/specs/2026-07-26-eugo-docint-helm-chart-design.md`. EuGo-infra still owns cluster provisioning and release execution.
 
 **Dockerfile** (chiseled aspnet, port 8090) uses the standard .NET cross-publish pattern so ARM builds don't crawl under QEMU emulation: the SDK stage is pinned to the build host (`FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build`) and cross-targets via `ARG TARGETARCH` + `dotnet publish -a $TARGETARCH`; only the runtime stage (`mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra`, itself multi-arch) resolves per target platform. Otherwise mirrors EuGo-mcp's Dockerfile (stage layout, `USER $APP_UID`, `UseAppHost=false`).
 
