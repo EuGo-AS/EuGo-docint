@@ -91,7 +91,17 @@ The decided shape is **already provisioned**: `aif-eugo-swc` (`kind: AIServices`
   The `gpt-5.4-mini` deployment exists on `aif-eugo-swc` under exactly that name (model `gpt-5.4-mini`, version `2026-03-17`, DataZoneStandard, Succeeded) — so the `AzureOpenAI:DeploymentNameVision` default shipped in `appsettings.json` is confirmed against the real deployment, not assumed.
 - **Gate 2 — Entra on the DI data plane: cleared in principle, role assignment still outstanding.** An Entra-authenticated request to `aif-eugo-swc` routed to the Document Intelligence data plane and was denied on a **DI-specific data action**: `Microsoft.CognitiveServices/accounts/FormRecognizer/documentmodels/read`. RBAC being evaluated on that action proves the DI data plane is live on the consolidated resource and does accept Entra — the single-service carve-out in the quickstart does not apply. What remains is provisioning work, not a design risk: the AKS workload identity needs a Document Intelligence data-plane role (e.g. `Cognitive Services User`) on `aif-eugo-swc`. Missing it surfaces as 403 on every PDF at runtime.
 
-**Network: `aif-eugo-swc` has `publicNetworkAccess: Disabled`.** It is reachable only through the approved private endpoint `pep-eugo-aif-swc` (groupId `account`, which covers the whole account including the Document Intelligence sub-endpoint); a direct call returns `403 — "Public access is disabled. Please configure private endpoint."` Consequences: the AKS pods must resolve it over private DNS, and **the live smoke suite cannot be run from a developer machine against this resource** — see the live-smoke note in `CLAUDE.md`. `disableLocalAuth: false`, so keys still work from inside the network, but Workload Identity remains the AKS path.
+**Network: `aif-eugo-swc` has `publicNetworkAccess: Disabled`.** It is reachable only through the approved private endpoint `pep-eugo-aif-swc` (groupId `account`); a direct call returns `403 — "Public access is disabled. Please configure private endpoint."` Consequences: the AKS pods must resolve it over private DNS, and **the live smoke suite cannot be run from a developer machine against this resource** — see the live-smoke note in `CLAUDE.md`. `disableLocalAuth: false`, so keys still work from inside the network, but Workload Identity remains the AKS path.
+
+The "all three FQDNs must resolve" caveat below is **already satisfied** on this endpoint. Its `default` DNS zone group carries all three zones, each with the `aif-eugo-swc` A record — verified 2026-08-04 via `az network private-endpoint dns-zone-group list`:
+
+```
+privatelink.cognitiveservices.azure.com   → aif-eugo-swc.privatelink.cognitiveservices.azure.com
+privatelink.openai.azure.com              → aif-eugo-swc.privatelink.openai.azure.com
+privatelink.services.ai.azure.com         → aif-eugo-swc.privatelink.services.ai.azure.com
+```
+
+So both endpoint keys this service reads resolve privately from the VNet, and no second IP configuration is needed. The AKS cluster's VNet must be linked to those private DNS zones for the pods to resolve them — that link is EuGo-infra's to confirm and was not verified here.
 
 If private endpoints are in play, all three FQDNs must resolve, and the private link endpoint must be recreated for the `services.ai.azure.com` and `cognitiveservices.azure.com` IP configurations.
 
