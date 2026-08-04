@@ -82,6 +82,17 @@ Two gates to clear before provisioning, both cheap to test and both able to bloc
 
 If either gate fails, keep two standalone resources (`kind: FormRecognizer` + `kind: OpenAI`). That is also the arrangement with the smaller blast radius: the per-engine `engine_unconfigured` degradation still works either way, but behind one resource a single RBAC, network or region fault takes out PDF *and* image extraction together.
 
+#### Gate verification, Sweden Central (2026-08-04)
+
+The decided shape is **already provisioned**: `aif-eugo-swc` (`kind: AIServices`, S0, `swedencentral`, resource group `rg-eugo-foundry-swc`, custom subdomain `aif-eugo-swc`). Findings from `az` against the live subscription:
+
+- **Gate 1 — region: cleared.** `prebuilt-layout` answers in Sweden Central at api-version `2024-11-30`, the version pinned by `Azure.AI.DocumentIntelligence` 1.0.0:
+  `GET {endpoint}/documentintelligence/documentModels/prebuilt-layout?api-version=2024-11-30` → `200 {"modelId":"prebuilt-layout","apiVersion":"2024-11-30"}`. Verified against a *different* Sweden Central `AIServices` resource that permits public access — prebuilt models are a region/service property, not per-resource, so this establishes regional availability. `az cognitiveservices account list-skus` lists `FormRecognizer` (F0, S0) and `AIServices` (S0) in `swedencentral` with no restrictions. The "East US / West US 2 / West Europe only" limitation in circulation applies to the **2024-07-31 preview**, not to GA layout.
+  The `gpt-5.4-mini` deployment exists on `aif-eugo-swc` under exactly that name (model `gpt-5.4-mini`, version `2026-03-17`, DataZoneStandard, Succeeded) — so the `AzureOpenAI:DeploymentNameVision` default shipped in `appsettings.json` is confirmed against the real deployment, not assumed.
+- **Gate 2 — Entra on the DI data plane: cleared in principle, role assignment still outstanding.** An Entra-authenticated request to `aif-eugo-swc` routed to the Document Intelligence data plane and was denied on a **DI-specific data action**: `Microsoft.CognitiveServices/accounts/FormRecognizer/documentmodels/read`. RBAC being evaluated on that action proves the DI data plane is live on the consolidated resource and does accept Entra — the single-service carve-out in the quickstart does not apply. What remains is provisioning work, not a design risk: the AKS workload identity needs a Document Intelligence data-plane role (e.g. `Cognitive Services User`) on `aif-eugo-swc`. Missing it surfaces as 403 on every PDF at runtime.
+
+**Network: `aif-eugo-swc` has `publicNetworkAccess: Disabled`.** It is reachable only through the approved private endpoint `pep-eugo-aif-swc` (groupId `account`, which covers the whole account including the Document Intelligence sub-endpoint); a direct call returns `403 — "Public access is disabled. Please configure private endpoint."` Consequences: the AKS pods must resolve it over private DNS, and **the live smoke suite cannot be run from a developer machine against this resource** — see the live-smoke note in `CLAUDE.md`. `disableLocalAuth: false`, so keys still work from inside the network, but Workload Identity remains the AKS path.
+
 If private endpoints are in play, all three FQDNs must resolve, and the private link endpoint must be recreated for the `services.ai.azure.com` and `cognitiveservices.azure.com` IP configurations.
 
 ## Wire contract v1 (frozen; `/v1` is internal-may-change until EuGo-mcp is the second consumer)

@@ -98,4 +98,14 @@ export AzureOpenAI__ApiKey=<key>                 # omit to use DefaultAzureCrede
 dotnet test --no-build src/DocInt.slnx --filter "FullyQualifiedName~LiveSmokeTests"
 ```
 
+**Network reachability (verified 2026-08-04).** The provisioned EuGo Foundry resource
+`aif-eugo-swc` (Sweden Central) has `publicNetworkAccess: Disabled` — it answers only through
+its private endpoint, so the commands above **cannot be run against it from a developer
+machine**; a direct call returns `403 "Public access is disabled."` Run the live suite from
+inside the VNet (a pod or jumpbox on the cluster), or point the endpoints at a separate
+public dev resource. Both endpoints share the one resource, on two hostnames:
+`https://aif-eugo-swc.cognitiveservices.azure.com/` for Document Intelligence and
+`https://aif-eugo-swc.openai.azure.com/` for Azure OpenAI. See "Azure resource shape" in
+`docs/superpowers/specs/2026-07-19-eugo-docint-design.md`.
+
 Golden fixtures are committed binaries; regenerate only deliberately with `dotnet run --project tools/make-golden`, **from the repo root** (the default output path is cwd-relative). See `tools/make-golden/README.md` for the regenerate-to-a-scratch-dir workflow, why a no-op run still rewrites most fixtures, and why a change touching `ImageFixtures.cs` must be verified against the live suite rather than the offline one.
