@@ -20,7 +20,7 @@ public class OptionsTests
         Assert.Equal(100, o.PerFileTimeoutSeconds);
         Assert.Equal(4, o.MaxParallelism);
         Assert.Equal(52_428_800L * 32 + 1_048_576, o.MaxRequestBytes);
-        Assert.Equal("gpt-5.4-mini",
+        Assert.Equal("model-eugo-docint-vision",
             factory.Services.GetRequiredService<IOptions<AzureOpenAIOptions>>().Value.DeploymentNameVision);
     }
 
@@ -39,7 +39,7 @@ public class OptionsTests
 
         // Control: same endpoint, name present — proves the blank name is what fails, not the helper.
         Validate(("AzureOpenAI:Endpoint", "https://aoai.example"),
-            ("AzureOpenAI:DeploymentNameVision", "gpt-5.4-mini"));
+            ("AzureOpenAI:DeploymentNameVision", "model-eugo-docint-vision"));
     }
 
     private static void Validate(params (string Key, string Value)[] settings)

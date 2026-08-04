@@ -32,7 +32,8 @@ azure:
     # var and image files answer engine_unconfigured (designed degraded mode)
     endpoint: ""
     # Sets env AzureOpenAI__DeploymentNameVision; empty here omits the var and the image's
-    # appsettings.json supplies gpt-5.4-mini. A name is required once openAI.endpoint is set,
+    # appsettings.json supplies model-eugo-docint-vision (a deployment alias, not a model
+    # name). A name is required once openAI.endpoint is set,
     # so blanking it explicitly (via extraEnv) fails validation at pod start rather than
     # failing every image request.
     deploymentNameVision: ""

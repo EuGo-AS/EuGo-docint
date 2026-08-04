@@ -8,7 +8,7 @@ azure:
     endpoint: https://example-di.cognitiveservices.azure.com/
   openAI:
     endpoint: https://example-aoai.openai.azure.com/
-    deploymentNameVision: gpt-5.4-mini
+    deploymentNameVision: model-eugo-docint-vision
 # A bare number here proves the template stringifies it — k8s rejects a non-string env value.
 docint:
   maxFileBytes: 10485760

@@ -120,7 +120,7 @@ dotnet run --project src/DocInt.Api   # plain service on http://localhost:8090
 ```
 
 Azure engines activate when configured (user-secrets or env; endpoint without key → DefaultAzureCredential):
-`DocumentIntelligence:Endpoint`, `AzureOpenAI:Endpoint`, `AzureOpenAI:DeploymentNameVision` (default `gpt-5.4-mini`, from `appsettings.json`).
+`DocumentIntelligence:Endpoint`, `AzureOpenAI:Endpoint`, `AzureOpenAI:DeploymentNameVision` (default `model-eugo-docint-vision`, from `appsettings.json` — a deployment *alias*, stable across model changes).
 Unconfigured engines answer with per-file `engine_unconfigured` — the service always boots.
 
 ## 🚢 Deploy
