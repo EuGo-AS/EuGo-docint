@@ -14,10 +14,17 @@ public class StartupConfigurationLoggingTests
     private const string ApiKeySentinel = "SENTINEL-AOAI-KEY-MUST-NOT-BE-LOGGED";
     private const string ForeignSentinel = "SENTINEL-FOREIGN-VALUE-MUST-NOT-BE-LOGGED";
 
-    private sealed class CapturingConfigFactory : DocIntAppFactory
+    /// <summary>Boots the real Program with every log line captured, nothing else changed.</summary>
+    private class CapturingFactory : DocIntAppFactory
     {
         public CapturingLoggerProvider Capture { get; } = new();
 
+        protected override void ConfigureFakes(IServiceCollection services) =>
+            services.AddSingleton<ILoggerProvider>(Capture);
+    }
+
+    private sealed class CapturingConfigFactory : CapturingFactory
+    {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             // A key supplied the way a real deployment supplies it: not from tracked config.
@@ -27,12 +34,9 @@ public class StartupConfigurationLoggingTests
             builder.UseSetting("NotAnAppSection:Whatever", ForeignSentinel);
             base.ConfigureWebHost(builder);
         }
-
-        protected override void ConfigureFakes(IServiceCollection services) =>
-            services.AddSingleton<ILoggerProvider>(Capture);
     }
 
-    private static CapturingLoggerProvider BootAndCapture(CapturingConfigFactory factory)
+    private static CapturingLoggerProvider BootAndCapture(CapturingFactory factory)
     {
         _ = factory.Services;   // forces the host build, which runs Program up to app.Run()
         return factory.Capture;
@@ -63,6 +67,34 @@ public class StartupConfigurationLoggingTests
 
         Assert.DoesNotContain(lines, l => l.Contains(ApiKeySentinel));
         Assert.Contains(lines, l => l.Contains("AzureOpenAI:ApiKey") && l.Contains("***redacted***"));
+
+        // ...and redaction stays narrow: an ordinary key keeps its value.
+        Assert.Contains(lines, l => l.Contains("Serilog:MinimumLevel:Default")
+                                 && l.Contains("Information") && !l.Contains("***redacted***"));
+    }
+
+    // The shape a deployed pod actually uses: the key arrives from the environment under the
+    // double-underscore spelling, which the environment-variable provider maps onto the same
+    // AzureOpenAI:ApiKey path. The in-memory settings above are the easy case; this is the one
+    // whose failure would put a live credential in a log sink — so it boots a plain factory,
+    // where no UseSetting value can mask what the environment supplied.
+    [Fact]
+    public void Secret_supplied_through_the_environment_is_redacted_too()
+    {
+        const string envSentinel = "SENTINEL-ENV-KEY-MUST-NOT-BE-LOGGED";
+        Environment.SetEnvironmentVariable("AzureOpenAI__ApiKey", envSentinel);
+        try
+        {
+            using var factory = new CapturingFactory();
+            var lines = BootAndCapture(factory).Lines.ToArray();
+
+            Assert.DoesNotContain(lines, l => l.Contains(envSentinel));
+            Assert.Contains(lines, l => l.Contains("AzureOpenAI:ApiKey") && l.Contains("***redacted***"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("AzureOpenAI__ApiKey", null);
+        }
     }
 
     // The dump is scoped to the application's own configuration roots: values still come from
