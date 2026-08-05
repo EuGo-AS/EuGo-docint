@@ -60,17 +60,27 @@ spec:
           {{- with .Values.azure.openAI.deploymentNameVision }}
           {{- $env = append $env (dict "name" "AzureOpenAI__DeploymentNameVision" "value" .) }}
           {{- end }}
-          {{- with .Values.docint.maxFileBytes }}
-          {{- $env = append $env (dict "name" "DocInt__MaxFileBytes" "value" (printf "%d" (int64 .))) }}
+          {{- /* Deliberately not `with`, which the Azure endpoints above can safely use: `with`
+                 treats 0 as empty, so `--set docint.maxFileBytes=0` would omit the var and leave
+                 the image's default silently in force -- the opposite of the fail-fast contract
+                 in the chart design spec S4. Only nil and "" mean "unset" here; 0 and negatives
+                 are emitted so DocIntOptions' ValidateOnStart rejects them at pod start. The is-set
+                 test lives once, over all four, so it cannot be fixed for one limit and not the
+                 rest. The nil guard is a separate outer `if` on purpose: sprig's int64 coerces nil
+                 to 0, so `--set docint.maxFileBytes=null` would otherwise render a 0 nobody asked
+                 for. int64 (rather than the bare value) because a plain YAML number reaches Helm
+                 as a float64 and would emit 5.24288e+07. */}}
+          {{- $limits := dict
+                "MaxFileBytes" .Values.docint.maxFileBytes
+                "MaxFilesPerRequest" .Values.docint.maxFilesPerRequest
+                "PerFileTimeoutSeconds" .Values.docint.perFileTimeoutSeconds
+                "MaxParallelism" .Values.docint.maxParallelism }}
+          {{- range $name, $value := $limits }}
+          {{- if not (kindIs "invalid" $value) }}
+          {{- if ne (toString $value) "" }}
+          {{- $env = append $env (dict "name" (printf "DocInt__%s" $name) "value" (printf "%d" (int64 $value))) }}
           {{- end }}
-          {{- with .Values.docint.maxFilesPerRequest }}
-          {{- $env = append $env (dict "name" "DocInt__MaxFilesPerRequest" "value" (printf "%d" (int64 .))) }}
           {{- end }}
-          {{- with .Values.docint.perFileTimeoutSeconds }}
-          {{- $env = append $env (dict "name" "DocInt__PerFileTimeoutSeconds" "value" (printf "%d" (int64 .))) }}
-          {{- end }}
-          {{- with .Values.docint.maxParallelism }}
-          {{- $env = append $env (dict "name" "DocInt__MaxParallelism" "value" (printf "%d" (int64 .))) }}
           {{- end }}
           {{- $env = concat $env .Values.extraEnv }}
           {{- with $env }}

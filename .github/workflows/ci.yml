@@ -80,3 +80,22 @@ jobs:
           helm template ci charts/eugo-docint --set image.repository=r.example/eugo-docint > rendered.yaml
           grep -q 'mountPath: /tmp' rendered.yaml
           grep -q 'emptyDir' rendered.yaml
+      # A 0 must reach the pod, not be swallowed. Helm's `with` treats 0 as empty, so the limits
+      # render through an explicit is-set test instead -- without it `--set docint.maxFileBytes=0`
+      # leaves the image's default silently in force, the opposite of the fail-fast contract in
+      # the design spec §4 (and DocIntOptions rejects 0 at startup, per OptionsTests
+      # .Zero_limit_fails_host_startup). Two of the four limits are asserted, not one: the is-set
+      # test is shared, so a regression that restored `with` for only some of them must not pass.
+      # The unset case is the other half of the contract -- the chart still restates no numbers.
+      # Intermediate files rather than `grep | grep -q`, same reason as the step above.
+      - name: zero limits reach the pod, unset limits do not
+        run: |
+          render() { helm template ci charts/eugo-docint --set image.repository=r.example/eugo-docint "$@"; }
+          render --set docint.maxFileBytes=0 > zero-bytes.yaml
+          grep -A1 'DocInt__MaxFileBytes' zero-bytes.yaml > matched-bytes.txt
+          grep -q 'value: "0"' matched-bytes.txt
+          render --set docint.maxParallelism=0 > zero-parallelism.yaml
+          grep -A1 'DocInt__MaxParallelism' zero-parallelism.yaml > matched-parallelism.txt
+          grep -q 'value: "0"' matched-parallelism.txt
+          render > default.yaml
+          ! grep -q 'DocInt__' default.yaml

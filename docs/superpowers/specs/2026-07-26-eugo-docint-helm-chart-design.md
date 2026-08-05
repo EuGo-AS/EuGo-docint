@@ -200,6 +200,14 @@ Rendered from *minimal* values on purpose, so the mount can never become depende
 some value being set. This is the regression gate for the bug in §4; it is a render
 assertion, so it proves the chart's shape, not that extraction succeeds — see §8.
 
+It also asserts that a `0` limit reaches the pod while an unset one does not. §4's
+"non-positive override fails `ValidateOnStart`" was specified from the start but not
+implemented: the limits rendered through Helm's `with`, which treats `0` as empty, so
+`--set docint.maxFileBytes=0` omitted the var and left the image default silently in force.
+Two of the four limits are asserted, since the is-set test is now shared across them.
+The startup half of that contract is covered in `DocInt.Tests`
+(`OptionsTests.Zero_limit_fails_host_startup`), which was previously uncovered.
+
 New `release.yml`, triggered by tags:
 
 - **`v*` (image release):** build-test gate → multi-arch buildx push to ACR as

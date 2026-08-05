@@ -40,10 +40,9 @@ azure:
 
 # Service limits. Each empty value omits its DocInt__* env var, leaving the image's
 # appsettings.json default in force — the numbers are deliberately not repeated here, so
-# there is nothing to drift. Set one to override it for this release. Negative values reach
-# the pod and fail validation at startup; 0 does not — the template emits these with `with`,
-# which treats 0 as empty, so `--set docint.maxFileBytes=0` silently leaves the shipped
-# default in force rather than failing. A 0 here never means "no limit".
+# there is nothing to drift. Set one to override it for this release. Only an empty value means
+# "unset": a 0 or a negative is passed through to the pod and fails validation at startup rather
+# than silently falling back to the default. A 0 here never means "no limit".
 docint:
   # Per-file size cap, in bytes; a larger file gets a per-file too_large error inside a 200
   maxFileBytes: ""

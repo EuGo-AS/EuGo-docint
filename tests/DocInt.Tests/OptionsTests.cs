@@ -42,6 +42,26 @@ public class OptionsTests
             ("AzureOpenAI:DeploymentNameVision", "model-eugo-docint-vision"));
     }
 
+    // The chart renders these limits so a 0 reaches the pod rather than being swallowed
+    // (charts/eugo-docint/templates/deployment.yaml), which is only worth doing if a 0 actually
+    // stops the host. That is this test: the positivity validator was previously uncovered, so
+    // the "fails at startup rather than silently falling back" contract rested on nothing.
+    // Each case overrides one key; the other three keep their appsettings.json defaults, which
+    // is what proves the named key is the one being rejected.
+    [Theory]
+    [InlineData("DocInt:MaxFileBytes")]
+    [InlineData("DocInt:MaxFilesPerRequest")]
+    [InlineData("DocInt:PerFileTimeoutSeconds")]
+    [InlineData("DocInt:MaxParallelism")]
+    public void Zero_limit_fails_host_startup(string key)
+    {
+        var ex = Assert.Throws<OptionsValidationException>(() => Validate((key, "0")));
+        Assert.Contains("positive", ex.Message);
+
+        // Control: the same helper with no override boots clean, so it is the 0 that fails.
+        Validate();
+    }
+
     private static void Validate(params (string Key, string Value)[] settings)
     {
         var builder = WebApplication.CreateBuilder();
