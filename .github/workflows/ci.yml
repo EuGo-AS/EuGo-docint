@@ -66,3 +66,14 @@ jobs:
       - run: helm lint charts/eugo-docint
       - run: helm template ci charts/eugo-docint -f charts/eugo-docint/ci/test-values.yaml > /dev/null
       - run: helm template ci charts/eugo-docint --set image.repository=r.example/eugo-docint --set autoscaling.enabled=false > /dev/null
+      # Regression gate for the read-only-root/XLSX bug: the pod runs with
+      # readOnlyRootFilesystem, but OpenXML spills package parts to /tmp, so every XLSX
+      # request fails with engine_error unless a writable volume is mounted there. Rendered
+      # from the minimal values on purpose -- the mount must not depend on any value being
+      # set. Both halves are asserted: a volumeMount whose volume is missing renders fine
+      # and only fails at apply time.
+      - name: rendered pod mounts a writable /tmp
+        run: |
+          helm template ci charts/eugo-docint --set image.repository=r.example/eugo-docint \
+            | tee /tmp/rendered.yaml | grep -q 'mountPath: /tmp'
+          grep -q 'emptyDir' /tmp/rendered.yaml

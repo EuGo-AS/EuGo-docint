@@ -79,3 +79,15 @@ spec:
           {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # readOnlyRootFilesystem above leaves the container with nowhere to write, but the
+        # SpreadsheetEngine's OpenXML reader spills package parts to /tmp even though it opens
+        # from a MemoryStream -- without this, every XLSX request fails with
+        # engine_error "Read-only file system : '/tmp/'". Deliberately disk-backed: a
+        # medium: Memory emptyDir counts against the container memory limit, which is already
+        # sized for MaxFileBytes x MaxParallelism buffered in memory.
+        - name: tmp
+          emptyDir: {}
