@@ -141,8 +141,24 @@ service:
   (from `replicaCount`); when the HPA owns the count, the field is omitted so
   `helm upgrade` never fights the autoscaler.
 - **Security context:** `runAsNonRoot: true` (image runs as `$APP_UID` on chiseled
-  aspnet), `readOnlyRootFilesystem: true` (the service never touches disk by design),
-  `allowPrivilegeEscalation: false`, capabilities drop `ALL`, seccomp `RuntimeDefault`.
+  aspnet), `readOnlyRootFilesystem: true`, `allowPrivilegeEscalation: false`,
+  capabilities drop `ALL`, seccomp `RuntimeDefault`.
+- **Writable `/tmp`** (added 2026-08-06): a disk-backed `emptyDir` mounted at `/tmp`.
+  **Amended 2026-08-06:** the original rationale for `readOnlyRootFilesystem` — "the
+  service never touches disk by design" — was wrong, and the chart shipped with no
+  writable volume because of it. The service persists nothing, but *persisting nothing*
+  is not *writing nothing*: `SpreadsheetEngine` opens the workbook from a `MemoryStream`,
+  yet OpenXML / `System.IO.Packaging` spills package parts to a temp file underneath.
+  With a read-only root and no `/tmp`, **every XLSX request on a chart-based deployment
+  failed** with `engine_error "Read-only file system : '/tmp/'"` — AKS included. Observed
+  and fixed 2026-08-06 (chart 0.1.2).
+  Deliberately **not** `medium: Memory`: a tmpfs `emptyDir` is charged to the container's
+  memory limit, which §3 already sizes for `MaxFileBytes × MaxParallelism` buffered in
+  memory — backing `/tmp` with it would bill that budget twice. No `sizeLimit` is set;
+  bounding node ephemeral storage under load (≤50 MB × 4 in flight per pod) is an open
+  follow-up, not a decision this fix made.
+  `readOnlyRootFilesystem: true` is retained — the mount is the narrow exception, not a
+  relaxation of the constraint.
 - **Labels:** standard `app.kubernetes.io/name|instance|version|managed-by` via helpers;
   the Workload Identity pod label renders only when `serviceAccount.azureClientId` is set.
 
@@ -177,6 +193,13 @@ acceptable; min 2 covers availability, and target/max are values-tunable.
 must succeed; offline, no cluster). Lint and render only — no `helm package`, no
 `helm push`. `release.yml` is the sole publisher.
 
+**Amended 2026-08-06:** `chart-lint` also asserts that the rendered pod carries a
+writable `/tmp` — both the `mountPath: /tmp` and the `emptyDir` backing it, since a
+`volumeMount` whose volume is missing renders happily and only fails at apply time.
+Rendered from *minimal* values on purpose, so the mount can never become dependent on
+some value being set. This is the regression gate for the bug in §4; it is a render
+assertion, so it proves the chart's shape, not that extraction succeeds — see §8.
+
 New `release.yml`, triggered by tags:
 
 - **`v*` (image release):** build-test gate → multi-arch buildx push to ACR as
@@ -200,6 +223,16 @@ New `release.yml`, triggered by tags:
   pushed — `helm package` validates `Chart.yaml` metadata but never renders templates, so a
   chart whose templates cannot render packages with exit 0 and would first fail at
   `helm install`. No live-cluster testing in this repo.
+
+**Amended 2026-08-06 — the limit of render-only verification.** The read-only-root/XLSX
+bug in §4 rendered, linted and packaged cleanly; it was only observable in a running pod.
+Nothing in `dotnet test` can catch it either: the read-only root filesystem comes solely
+from this chart's `securityContext`, never from the Dockerfile, so the offline golden
+tests and the `docker` CI job both run on a writable filesystem and pass. The gap is
+structural — CI's automated gate asserts the *rendered shape* (§7), while the behavioral
+proof was done by hand: `kind` cluster, `helm install` from this chart, `POST /v1/extract`
+with the BoM XLSX, typed cells returned with no error. Re-run that by hand when changing
+the security context or anything about how engines touch the filesystem.
 
 ## 9. Documentation updates
 
