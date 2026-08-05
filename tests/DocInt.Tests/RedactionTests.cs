@@ -7,19 +7,22 @@ namespace DocInt.Tests;
 /// <summary>Captures every formatted log line written through ILogger across all providers.</summary>
 public sealed class CapturingLoggerProvider : ILoggerProvider
 {
-    public ConcurrentQueue<string> Lines { get; } = [];
+    public ConcurrentQueue<(LogLevel Level, string Message)> Entries { get; } = [];
 
-    public ILogger CreateLogger(string categoryName) => new CapturingLogger(Lines);
+    /// <summary>The captured messages alone — most assertions only care about the text.</summary>
+    public IEnumerable<string> Lines => Entries.Select(e => e.Message);
+
+    public ILogger CreateLogger(string categoryName) => new CapturingLogger(Entries);
 
     public void Dispose() { }
 
-    private sealed class CapturingLogger(ConcurrentQueue<string> lines) : ILogger
+    private sealed class CapturingLogger(ConcurrentQueue<(LogLevel, string)> entries) : ILogger
     {
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
         public bool IsEnabled(LogLevel logLevel) => true;
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
             Exception? exception, Func<TState, Exception?, string> formatter) =>
-            lines.Enqueue(formatter(state, exception));
+            entries.Enqueue((logLevel, formatter(state, exception)));
     }
 }
 

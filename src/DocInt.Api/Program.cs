@@ -59,6 +59,10 @@ try
 
     var app = builder.Build();
 
+    // Through ILoggerFactory, not the static Serilog Log: that one is still the bootstrap logger
+    // here, so it would bypass the sinks configured above.
+    app.LogEffectiveConfiguration();
+
     if (app.Environment.IsDevelopment())
     {
         app.MapOpenApi();

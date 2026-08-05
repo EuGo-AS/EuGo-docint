@@ -173,6 +173,7 @@ interface IExtractionEngine {
 * **Tracing:** one activity per request, one per file (tags: kind, size, outcome — no filenames in trace tags; filenames may appear in logs).
 * **Metric:** `docint.pages_processed` counter, tag `kind` — DI page count; xlsx = sheet count; image = 1.
 * **Log redaction rule:** log filename, size, kind, duration, outcome, error code — never document content, never extraction output. Enforced by a log-capture test (process golden files, assert known content strings absent from captured logs).
+* **Startup configuration log** (`StartupConfigurationLog`, called between `Build()` and `Run()`): one Information line per effective configuration key, so a pod's log records the limits and endpoints it actually booted with. Values are read after the full provider chain resolves; keys are scoped to the application's own roots (`DocInt`, `DocumentIntelligence`, `AzureOpenAI`, `Serilog`, `Logging`, `Kestrel`, `AllowedHosts`, plus `ASPNETCORE_ENVIRONMENT` and `OTEL_EXPORTER_OTLP_ENDPOINT`) — the un-prefixed environment-variable provider would otherwise put the whole process environment in the log. Credential-shaped keys (leaf segment containing `key`, `secret`, `password`, `pwd`, `token`, `connectionstring`, `sas`, `credential`) are named but valued `***redacted***`; blank values print `(empty)`. Emitted through `ILoggerFactory`, not the static Serilog `Log`, which at that point is still the bootstrap logger.
 * **Statelessness:** request-scoped byte handling only; nothing written to disk or any store.
 
 ## Testing
