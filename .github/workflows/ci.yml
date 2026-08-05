@@ -72,8 +72,11 @@ jobs:
       # from the minimal values on purpose -- the mount must not depend on any value being
       # set. Both halves are asserted: a volumeMount whose volume is missing renders fine
       # and only fails at apply time.
+      # Rendered to a file rather than `helm template | tee f | grep -q`: grep -q exits on its
+      # first match and can SIGPIPE tee mid-write, and volumeMounts renders before volumes,
+      # so the emptyDir line is exactly the part that could be lost.
       - name: rendered pod mounts a writable /tmp
         run: |
-          helm template ci charts/eugo-docint --set image.repository=r.example/eugo-docint \
-            | tee /tmp/rendered.yaml | grep -q 'mountPath: /tmp'
-          grep -q 'emptyDir' /tmp/rendered.yaml
+          helm template ci charts/eugo-docint --set image.repository=r.example/eugo-docint > rendered.yaml
+          grep -q 'mountPath: /tmp' rendered.yaml
+          grep -q 'emptyDir' rendered.yaml
