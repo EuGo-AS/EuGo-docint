@@ -1,6 +1,7 @@
 using DocInt.Api.Api;
 using DocInt.Api.Configuration;
 using DocInt.Api.Engines;
+using DocInt.Api.Startup;
 using DocInt.Api.Telemetry;
 using DocInt.Api.Validation;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -22,6 +23,7 @@ try
 
     builder.AddServiceDefaults();
     builder.AddDocIntOptions();
+    builder.AddStartupConnectivityCheck();
 
     builder.Services.AddSingleton<DocIntTelemetry>();
     builder.Services.ConfigureOpenTelemetryTracerProvider(t => t.AddSource(DocIntTelemetry.SourceName));

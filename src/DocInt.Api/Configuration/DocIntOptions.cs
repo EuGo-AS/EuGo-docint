@@ -35,10 +35,44 @@ public sealed class AzureOpenAIOptions
     public string DeploymentNameVision { get; set; } = "";
 }
 
+/// <summary>
+/// The boot-time reachability check over the configured Azure endpoints. Nested under DocInt so
+/// it travels with the rest of the service's own knobs (DocInt__StartupProbe__Enabled from the
+/// environment).
+/// </summary>
+public sealed class StartupProbeOptions
+{
+    public const string SectionName = "DocInt:StartupProbe";
+
+    /// <summary>
+    /// The off switch. Unlike the numbers below this one carries a default: a bool has no
+    /// "absent", and defaulting to false would turn a typo into a silently unverified boot —
+    /// exactly the outcome the check exists to prevent. Turn it off where the endpoints are
+    /// legitimately unreachable from the host, e.g. a laptop outside the VNet.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    // No initializers below, matching DocIntOptions: appsettings.json owns the shipped values, so
+    // a section deleted by accident fails ValidateOnStart instead of falling back to a second set
+    // of defaults hidden in this file.
+    public int Attempts { get; set; }
+    public double RetryDelaySeconds { get; set; }
+    /// <summary>Ceiling on a single attempt, so one hung TLS handshake cannot starve the rest.</summary>
+    public int AttemptTimeoutSeconds { get; set; }
+    /// <summary>Ceiling on the whole check. Keep it inside the pod's startupProbe window.</summary>
+    public int TotalTimeoutSeconds { get; set; }
+}
+
 public static class OptionsExtensions
 {
     public static WebApplicationBuilder AddDocIntOptions(this WebApplicationBuilder builder)
     {
+        builder.Services.AddOptions<StartupProbeOptions>()
+            .Bind(builder.Configuration.GetSection(StartupProbeOptions.SectionName))
+            .Validate(o => o.Attempts > 0 && o.AttemptTimeoutSeconds > 0 && o.TotalTimeoutSeconds > 0
+                        && o.RetryDelaySeconds >= 0,
+                $"{StartupProbeOptions.SectionName} attempts and timeouts must be positive")
+            .ValidateOnStart();
         builder.Services.AddOptions<DocIntOptions>()
             .Bind(builder.Configuration.GetSection(DocIntOptions.SectionName))
             .Validate(o => o.MaxFileBytes > 0 && o.MaxFilesPerRequest > 0

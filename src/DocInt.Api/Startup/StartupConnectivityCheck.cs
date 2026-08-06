@@ -1,0 +1,197 @@
+using System.ClientModel;
+using System.Diagnostics;
+using Azure;
+using DocInt.Api.Configuration;
+using Microsoft.Extensions.Options;
+using Polly;
+using Polly.Retry;
+using Polly.Timeout;
+
+namespace DocInt.Api.Startup;
+
+/// <summary>
+/// Dials every configured Azure endpoint once, before Kestrel binds, and refuses to start the host
+/// if one stays unreachable. Without it a pod comes up healthy against an endpoint it cannot
+/// reach and turns every PDF or photo into a per-file engine_error — a failure that only shows up
+/// in a caller's response body, never in the deployment. Failing at start puts it in the pod's
+/// status instead.
+/// </summary>
+/// <remarks>
+/// Runs in <see cref="IHostedLifecycleService.StartingAsync"/>, which the host calls for every
+/// hosted service before it calls StartAsync on any of them — so this completes before
+/// GenericWebHostService opens a socket, and a failure means the service never accepted a request
+/// it could not fulfil. Throwing here aborts <c>app.Run()</c>, which Program's top-level handler
+/// turns into a fatal log and exit code 1.
+/// </remarks>
+public sealed class StartupConnectivityCheck(
+    IEnumerable<IStartupProbe> probes,
+    IOptions<StartupProbeOptions> options,
+    ILogger<StartupConnectivityCheck> logger) : IHostedLifecycleService
+{
+    public async Task StartingAsync(CancellationToken cancellationToken)
+    {
+        var o = options.Value;
+        var configured = probes.ToArray();
+
+        if (!o.Enabled)
+        {
+            logger.LogInformation(
+                "Startup connectivity check disabled ({Key}=false); {Count} configured endpoint(s) left unverified",
+                $"{StartupProbeOptions.SectionName}:Enabled", configured.Length);
+            return;
+        }
+
+        if (configured.Length == 0)
+        {
+            logger.LogInformation(
+                "Startup connectivity check: no Azure endpoint configured, nothing to verify");
+            return;
+        }
+
+        logger.LogInformation(
+            "Startup connectivity check: verifying {Count} endpoint(s), up to {Attempts} attempt(s) each",
+            configured.Length, o.Attempts);
+
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(TimeSpan.FromSeconds(o.TotalTimeoutSeconds));
+
+        var pipeline = BuildPipeline(o);
+        // Concurrently rather than in sequence: the kubelet starts counting liveness the moment
+        // the container does, so the check has to cost about one endpoint's latency, not the sum.
+        var outcomes = await Task.WhenAll(configured.Select(p => RunAsync(p, pipeline, o, budget.Token)));
+
+        var failures = outcomes.OfType<string>().ToArray();   // null means the connection was established
+        if (failures.Length == 0) return;
+
+        throw new StartupProbeFailedException(
+            $"Startup connectivity check failed after {o.Attempts} attempt(s): {string.Join("; ", failures)}. "
+            + $"Set {StartupProbeOptions.SectionName}:Enabled=false to start without verifying.");
+    }
+
+    /// <returns><c>null</c> on success, otherwise a one-line reason naming the service.</returns>
+    private async Task<string?> RunAsync(
+        IStartupProbe probe, ResiliencePipeline pipeline, StartupProbeOptions o, CancellationToken ct)
+    {
+        var started = Stopwatch.GetTimestamp();
+        var attempts = 0;
+        try
+        {
+            await pipeline.ExecuteAsync(async token =>
+            {
+                attempts++;
+                await probe.ProbeAsync(token);
+            }, ct);
+
+            logger.LogInformation(
+                "Connection to {Service} at {Endpoint} established on attempt {Attempt} of {Attempts} in {ElapsedMs} ms",
+                probe.Service, probe.Endpoint, attempts, o.Attempts, ElapsedMs(started));
+            return null;
+        }
+        catch (Exception ex)
+        {
+            var reason = Describe(ex);
+            logger.LogError(
+                "Connection to {Service} at {Endpoint} failed after {Attempt} attempt(s) in {ElapsedMs} ms: {Reason}",
+                probe.Service, probe.Endpoint, attempts, ElapsedMs(started), reason);
+            return $"{probe.Service} at {probe.Endpoint} — {reason}";
+        }
+    }
+
+    private ResiliencePipeline BuildPipeline(StartupProbeOptions o) =>
+        new ResiliencePipelineBuilder()
+            .AddRetry(new RetryStrategyOptions
+            {
+                // Attempts counts the first try, Polly counts only the repeats.
+                MaxRetryAttempts = o.Attempts - 1,
+                Delay = TimeSpan.FromSeconds(o.RetryDelaySeconds),
+                BackoffType = DelayBackoffType.Exponential,
+                UseJitter = true,
+                ShouldHandle = args => ValueTask.FromResult(IsRetryable(args.Outcome.Exception)),
+                OnRetry = args =>
+                {
+                    logger.LogWarning(
+                        "Startup connectivity attempt {Attempt} failed ({Reason}); retrying in {Delay}",
+                        args.AttemptNumber + 1, Describe(args.Outcome.Exception!), args.RetryDelay);
+                    return default;
+                },
+            })
+            // Inside the retry, so the ceiling is per attempt: one hung handshake must not eat the
+            // whole budget and starve the attempts that would have succeeded.
+            .AddTimeout(TimeSpan.FromSeconds(o.AttemptTimeoutSeconds))
+            .Build();
+
+    /// <summary>
+    /// Retry only what a second attempt could plausibly fix. A transport failure has no status —
+    /// DNS not yet resolvable, TLS reset, the workload-identity token endpoint still warming up —
+    /// and those are exactly the blips worth riding out. Anything with a definitive status means
+    /// the service answered: a denied identity, a wrong deployment name or a
+    /// publicNetworkAccess=Disabled resource will answer the same way three times in a row.
+    /// </summary>
+    internal static bool IsRetryable(Exception? ex) => ex is not null && StatusOf(ex) switch
+    {
+        null => true,
+        408 or 429 => true,
+        >= 500 => true,
+        _ => false,
+    };
+
+    private static int? StatusOf(Exception ex) => ex switch
+    {
+        RequestFailedException r when r.Status > 0 => r.Status,       // Azure.Core SDKs
+        ClientResultException c when c.Status > 0 => c.Status,        // System.ClientModel SDKs
+        _ => null,
+    };
+
+    /// <summary>
+    /// One line, status first. Azure's exception messages run to many lines and can echo the
+    /// request back; only the summary line belongs in a log.
+    /// </summary>
+    private static string Describe(Exception ex) => ex switch
+    {
+        RequestFailedException r => $"HTTP {r.Status}{Code(r.ErrorCode)}: {FirstLine(r.Message)}",
+        ClientResultException c => $"HTTP {c.Status}: {FirstLine(c.Message)}",
+        TimeoutRejectedException or OperationCanceledException => "timed out",
+        _ => $"{ex.GetType().Name}: {FirstLine(ex.Message)}",
+    };
+
+    private static string Code(string? errorCode) =>
+        string.IsNullOrEmpty(errorCode) ? "" : $" {errorCode}";
+
+    private static string FirstLine(string message)
+    {
+        var line = message.AsSpan();
+        var end = line.IndexOfAny('\r', '\n');
+        if (end >= 0) line = line[..end];
+        return line.Length > 200 ? string.Concat(line[..200], "…") : line.ToString();
+    }
+
+    private static int ElapsedMs(long started) => (int)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+
+    public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task StartedAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task StoppingAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task StoppedAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+public static class StartupConnectivityCheckExtensions
+{
+    /// <summary>
+    /// Registers a probe per configured endpoint, and nothing at all when both are blank — the
+    /// stub-first deployment stays legal, and only an endpoint someone actually asked for is
+    /// treated as one the service must be able to reach.
+    /// </summary>
+    public static WebApplicationBuilder AddStartupConnectivityCheck(this WebApplicationBuilder builder)
+    {
+        if (IsSet(builder, $"{DocumentIntelligenceOptions.SectionName}:Endpoint"))
+            builder.Services.AddSingleton<IStartupProbe, DocumentIntelligenceStartupProbe>();
+        if (IsSet(builder, $"{AzureOpenAIOptions.SectionName}:Endpoint"))
+            builder.Services.AddSingleton<IStartupProbe, AzureOpenAIStartupProbe>();
+
+        builder.Services.AddHostedService<StartupConnectivityCheck>();
+        return builder;
+    }
+
+    private static bool IsSet(WebApplicationBuilder builder, string key) =>
+        !string.IsNullOrWhiteSpace(builder.Configuration[key]);
+}

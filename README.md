@@ -147,7 +147,15 @@ truth, nothing to drift.
     "MaxFileBytes": 52428800,
     "MaxFilesPerRequest": 32,
     "PerFileTimeoutSeconds": 100,
-    "MaxParallelism": 4
+    "MaxParallelism": 4,
+    // Boot-time reachability check over whichever endpoints below are set.
+    "StartupProbe": {
+      "Enabled": true,
+      "Attempts": 3,
+      "RetryDelaySeconds": 1,
+      "AttemptTimeoutSeconds": 3,
+      "TotalTimeoutSeconds": 12
+    }
   },
   // Both endpoints are blank by design — they are environment-specific and never committed.
   // Supply them via user-secrets or env; blank keeps the stub-first path, where that engine's
@@ -176,6 +184,11 @@ truth, nothing to drift.
 | `DocInt:MaxFilesPerRequest` | `32` | `docint.maxFilesPerRequest` | Files accepted per request; more than this is a request-level 400 |
 | `DocInt:PerFileTimeoutSeconds` | `100` | `docint.perFileTimeoutSeconds` | Per-file engine budget; exceeding it yields a per-file `timeout` |
 | `DocInt:MaxParallelism` | `4` | `docint.maxParallelism` | Files processed concurrently. Raise it *with* `resources.limits.memory`, never alone — each in-flight file is buffered whole in memory |
+| `DocInt:StartupProbe:Enabled` | `true` | `extraEnv` | Dial every configured endpoint once at boot and refuse to start if one stays unreachable. See [Startup connectivity check](#startup-connectivity-check) |
+| `DocInt:StartupProbe:Attempts` | `3` | `extraEnv` | Attempts per endpoint, counting the first. Only a transport failure or a 408/429/5xx is retried |
+| `DocInt:StartupProbe:RetryDelaySeconds` | `1` | `extraEnv` | Base backoff between attempts; exponential with jitter |
+| `DocInt:StartupProbe:AttemptTimeoutSeconds` | `3` | `extraEnv` | Ceiling on one attempt, so a hung handshake can't starve the rest |
+| `DocInt:StartupProbe:TotalTimeoutSeconds` | `12` | `extraEnv` | Ceiling on the whole check. Raising it past ~20 s lets the pod's liveness probe restart the container mid-check |
 | `DocumentIntelligence:Endpoint` | `""` | `azure.documentIntelligence.endpoint` | `https://<resource>.cognitiveservices.azure.com/`. Serves PDF/DOCX/PPTX/HTML through the built-in `prebuilt-layout` model — no deployment name involved. Blank leaves those kinds on `engine_unconfigured` |
 | `DocumentIntelligence:ApiKey` | *unset — not in `appsettings.json`* | none, by design | Omit it and the client uses `DefaultAzureCredential` |
 | `AzureOpenAI:Endpoint` | `""` | `azure.openAI.endpoint` | `https://<resource>.openai.azure.com/` — the resource root only; the SDK appends `/openai/deployments/<name>/chat/completions`. Serves JPG/PNG |
@@ -198,6 +211,39 @@ endpoints must be absolute URIs, and `DeploymentNameVision` is required once `Az
 is set; a violation stops the host at startup. The service then logs its whole effective
 configuration once, with secret-shaped keys valued `***redacted***` — the fastest way to confirm
 what a pod actually came up with.
+
+### Startup connectivity check
+
+Valid configuration is not the same as reachable configuration. Before Kestrel binds, the service
+dials each **configured** endpoint once — Document Intelligence via `GET /documentintelligence/info`,
+Azure OpenAI via a one-token completion against `DeploymentNameVision` — and logs the result:
+
+```
+info: Connection to Document Intelligence at https://aif-eugo-swc.cognitiveservices.azure.com/ established on attempt 1 of 3 in 412 ms
+fail: Connection to Azure OpenAI at https://aif-eugo-swc.openai.azure.com/ failed after 1 attempt(s) in 233 ms: HTTP 403: Public access is disabled.
+```
+
+Neither call sends document content, and the Azure OpenAI one costs a single token per pod start.
+
+If an endpoint stays unreachable the host does not start and the process exits 1 — on AKS, a
+CrashLoopBackOff whose logs name the endpoint and the status, instead of a healthy pod that turns
+every PDF into a per-file `engine_error` only the caller ever sees. The rules:
+
+- **A blank endpoint is skipped.** The stub-first deployment is still legal; only an endpoint
+  someone asked for is one the service must be able to reach.
+- **Three attempts, but only for transport failures and 408/429/5xx** — the blips a pod hits when
+  its node's DNS or the Workload-Identity token endpoint is still warming up. A definitive status
+  (401, 403, 404) means the service answered, and retrying a denied identity or a wrong deployment
+  name cannot change the answer, so the check stops on the first one.
+- **The Azure SDKs' own retry is disabled for the probe**, so 3 attempts means 3, not 9–16.
+
+Turn it off with `DocInt:StartupProbe:Enabled=false` where the endpoints are unreachable **by
+design** — the common case being a developer machine outside the VNet, since `aif-eugo-swc` has
+`publicNetworkAccess: Disabled` and answers only through its private endpoint:
+
+```bash
+DocInt__StartupProbe__Enabled=false dotnet run --project src/DocInt.Api
+```
 
 **Credentials never go in `values.yaml`.** The chart has no `ApiKey` value on purpose: a key
 routed through `extraEnv` would sit in plaintext in the release manifest. In-cluster the pod
