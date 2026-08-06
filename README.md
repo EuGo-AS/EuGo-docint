@@ -153,8 +153,8 @@ truth, nothing to drift.
       "Enabled": true,
       "Attempts": 3,
       "RetryDelaySeconds": 1,
-      "AttemptTimeoutSeconds": 3,
-      "TotalTimeoutSeconds": 12
+      "AttemptTimeoutSeconds": 4,
+      "TotalTimeoutSeconds": 18
     }
   },
   // Both endpoints are blank by design — they are environment-specific and never committed.
@@ -187,8 +187,8 @@ truth, nothing to drift.
 | `DocInt:StartupProbe:Enabled` | `true` | `extraEnv` | Dial every configured endpoint once at boot and refuse to start if one stays unreachable. See [Startup connectivity check](#startup-connectivity-check) |
 | `DocInt:StartupProbe:Attempts` | `3` | `extraEnv` | Attempts per endpoint, counting the first. Only a transport failure or a 408/429/5xx is retried |
 | `DocInt:StartupProbe:RetryDelaySeconds` | `1` | `extraEnv` | Base backoff between attempts; exponential with jitter |
-| `DocInt:StartupProbe:AttemptTimeoutSeconds` | `3` | `extraEnv` | Ceiling on one attempt, so a hung handshake can't starve the rest |
-| `DocInt:StartupProbe:TotalTimeoutSeconds` | `12` | `extraEnv` | Ceiling on the whole check. Raising it past ~20 s lets the pod's liveness probe restart the container mid-check |
+| `DocInt:StartupProbe:AttemptTimeoutSeconds` | `4` | `extraEnv` | Ceiling on one attempt, so a hung handshake can't starve the rest. Must cover a cold `DefaultAzureCredential` token round-trip, not just the call |
+| `DocInt:StartupProbe:TotalTimeoutSeconds` | `18` | `extraEnv` | Ceiling on the whole check. Must be ≥ `Attempts × AttemptTimeoutSeconds` (rejected at boot otherwise); past ~20 s the pod's liveness probe restarts the container mid-check |
 | `DocumentIntelligence:Endpoint` | `""` | `azure.documentIntelligence.endpoint` | `https://<resource>.cognitiveservices.azure.com/`. Serves PDF/DOCX/PPTX/HTML through the built-in `prebuilt-layout` model — no deployment name involved. Blank leaves those kinds on `engine_unconfigured` |
 | `DocumentIntelligence:ApiKey` | *unset — not in `appsettings.json`* | none, by design | Omit it and the client uses `DefaultAzureCredential` |
 | `AzureOpenAI:Endpoint` | `""` | `azure.openAI.endpoint` | `https://<resource>.openai.azure.com/` — the resource root only; the SDK appends `/openai/deployments/<name>/chat/completions`. Serves JPG/PNG |
@@ -241,9 +241,16 @@ Turn it off with `DocInt:StartupProbe:Enabled=false` where the endpoints are unr
 design** — the common case being a developer machine outside the VNet, since `aif-eugo-swc` has
 `publicNetworkAccess: Disabled` and answers only through its private endpoint:
 
+```powershell
+$env:DocInt__StartupProbe__Enabled = 'false'; dotnet run --project src/DocInt.Api
+```
+
 ```bash
 DocInt__StartupProbe__Enabled=false dotnet run --project src/DocInt.Api
 ```
+
+Note that `src/DocInt.Api/appsettings.Development.json` is untracked and typically carries the real
+endpoints, so on a developer machine this is the difference between `dotnet run` starting and not.
 
 **Credentials never go in `values.yaml`.** The chart has no `ApiKey` value on purpose: a key
 routed through `extraEnv` would sit in plaintext in the release manifest. In-cluster the pod

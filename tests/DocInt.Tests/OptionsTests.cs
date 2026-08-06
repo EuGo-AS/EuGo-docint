@@ -62,6 +62,21 @@ public class OptionsTests
         Validate();
     }
 
+    // The startup check's budget has to fund the attempts it promises. A TotalTimeoutSeconds under
+    // Attempts x AttemptTimeoutSeconds cancels the final attempt mid-flight — and the final attempt
+    // is the one that matters, since the two before it already failed. Silent when it happens, so
+    // it fails at boot instead.
+    [Fact]
+    public void Startup_probe_budget_below_its_own_attempts_fails_validation()
+    {
+        var ex = Assert.Throws<OptionsValidationException>(() => Validate(
+            ("DocInt:StartupProbe:TotalTimeoutSeconds", "5")));
+        Assert.Contains("TotalTimeoutSeconds", ex.Message);
+
+        // Control: the shipped values satisfy it, so it is the 5 that fails and not the rule.
+        Validate();
+    }
+
     private static void Validate(params (string Key, string Value)[] settings)
     {
         var builder = WebApplication.CreateBuilder();

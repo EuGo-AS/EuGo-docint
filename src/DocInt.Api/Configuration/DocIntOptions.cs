@@ -72,6 +72,11 @@ public static class OptionsExtensions
             .Validate(o => o.Attempts > 0 && o.AttemptTimeoutSeconds > 0 && o.TotalTimeoutSeconds > 0
                         && o.RetryDelaySeconds >= 0,
                 $"{StartupProbeOptions.SectionName} attempts and timeouts must be positive")
+            // A budget smaller than the attempts it funds silently truncates the last one, which is
+            // the retry that matters — the two before it already failed.
+            .Validate(o => o.TotalTimeoutSeconds >= o.Attempts * o.AttemptTimeoutSeconds,
+                $"{StartupProbeOptions.SectionName}:TotalTimeoutSeconds must cover "
+                + "Attempts x AttemptTimeoutSeconds, or the final attempt is cut short")
             .ValidateOnStart();
         builder.Services.AddOptions<DocIntOptions>()
             .Bind(builder.Configuration.GetSection(DocIntOptions.SectionName))

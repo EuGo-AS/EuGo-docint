@@ -106,6 +106,11 @@ public sealed class StartupConnectivityCheck(
                 Delay = TimeSpan.FromSeconds(o.RetryDelaySeconds),
                 BackoffType = DelayBackoffType.Exponential,
                 UseJitter = true,
+                // Capped because jitter can push a delay *above* its base, and the whole point of
+                // TotalTimeoutSeconds is to be a budget the attempts fit inside: an uncapped delay
+                // makes the worst case unknowable, and the attempt it eats is the last one — the
+                // retry that exists for exactly the case where the first two failed.
+                MaxDelay = TimeSpan.FromSeconds(o.RetryDelaySeconds * 2),
                 ShouldHandle = args => ValueTask.FromResult(IsRetryable(args.Outcome.Exception)),
                 OnRetry = args =>
                 {
