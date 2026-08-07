@@ -1,0 +1,242 @@
+<mxfile host="65bd71144e">
+    <diagram name="POST /v1/extract" id="extract-path-1">
+        <mxGraphModel dx="1918" dy="873" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="2336" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title" value="EuGo-docint — POST /v1/extract call workflow, by file type" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=22;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="40" y="16" width="900" height="34" as="geometry"/>
+                </mxCell>
+                <mxCell id="subtitle" value="Source of truth: src/DocInt.Api — Api/ExtractEndpoint · Validation/MultipartExtractRequestReader · Validation/FileKindDetector · Engines/{ExtractionService, EngineRouter, LayoutEngine, SpreadsheetEngine, VisionEngine}" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=11;fontColor=#666666" parent="1" vertex="1">
+                    <mxGeometry x="40" y="52" width="1100" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="caller" value="Caller — EuGo-Web (later EuGo-mcp)&lt;br&gt;&lt;i&gt;cluster-internal only, never via ingress&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="480" y="110" width="280" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="post" value="&lt;b&gt;POST /v1/extract&lt;/b&gt;&lt;br&gt;multipart/form-data&lt;br&gt;N parts named &#39;files&#39; + optional &#39;hints&#39; part" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="480" y="192" width="280" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="endpoint" value="ExtractEndpoint.Handle&lt;br&gt;&lt;font color=&quot;#666666&quot;&gt;Api/ExtractEndpoint.cs&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="480" y="284" width="280" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="reader" value="MultipartExtractRequestReader.ReadAsync&lt;br&gt;&lt;i&gt;streams the body, buffers in memory — nothing touches disk&lt;/i&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="480" y="366" width="280" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="d_wellformed" value="request itself&lt;br&gt;well-formed?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
+                    <mxGeometry x="500" y="462" width="240" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="e400" value="&lt;b&gt;400 Problem — &quot;Malformed extract request&quot;&lt;/b&gt;&lt;br&gt;&lt;br&gt;The &lt;u&gt;only&lt;/u&gt; non-200 outcome. Raised by BadExtractRequestException:&lt;br&gt;• not multipart/form-data, or boundary missing&lt;br&gt;• no part named &#39;files&#39;&lt;br&gt;• more than MaxFilesPerRequest (32) files&lt;br&gt;• declared body &gt; MaxRequestBytes (32 × 50 MiB + 1 MiB)&lt;br&gt;• &#39;hints&#39; part &gt; 256 KiB&lt;br&gt;• truncated / corrupt multipart framing" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left;verticalAlign=top;spacingLeft=10;spacingTop=6;" parent="1" vertex="1">
+                    <mxGeometry x="980" y="420" width="400" height="160" as="geometry"/>
+                </mxCell>
+                <mxCell id="band" value="for each &#39;files&#39; part — still inside the reader" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9673a6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;fontColor=#6a4d8a;fontStyle=2" parent="1" vertex="1">
+                    <mxGeometry x="40" y="600" width="900" height="250" as="geometry"/>
+                </mxCell>
+                <mxCell id="buffer" value="buffer the part&lt;br&gt;&lt;i&gt;stop at MaxFileBytes (50 MiB) —&lt;br&gt;an oversized part is never fully buffered&lt;/i&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="70" y="648" width="230" height="66" as="geometry"/>
+                </mxCell>
+                <mxCell id="detect" value="&lt;b&gt;FileKindDetector.Detect&lt;/b&gt;&lt;br&gt;magic bytes → claimed content-type → extension" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" parent="1" vertex="1">
+                    <mxGeometry x="360" y="648" width="250" height="66" as="geometry"/>
+                </mxCell>
+                <mxCell id="fileitem" value="&lt;b&gt;FileItem&lt;/b&gt; { Index, Name, Bytes,&lt;br&gt;Kind?, ImageMediaType?, Purpose?,&lt;br&gt;Warnings[], Error? }" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="670" y="648" width="240" height="66" as="geometry"/>
+                </mxCell>
+                <mxCell id="prevalid_err" value="&lt;b&gt;Error set here — no engine ever runs&lt;/b&gt;&lt;br&gt;too_large · empty_file · unsupported_type" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" parent="1" vertex="1">
+                    <mxGeometry x="90" y="750" width="250" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="hints_note" value="&lt;b&gt;&#39;hints&#39; part&lt;/b&gt; → HintsParser.Parse&lt;br&gt;{ &quot;bom.xlsx&quot;: { &quot;purpose&quot;: &quot;bom&quot; } }&lt;br&gt;&lt;br&gt;• known value (bom | photo) → FileItem.Purpose&lt;br&gt;• anything else → warning &quot;unknown purpose hint ... ignored&quot;&lt;br&gt;&lt;br&gt;&lt;b&gt;&lt;font color=&quot;#b85450&quot;&gt;Purpose is carried but read by nothing today&lt;/font&gt;&lt;/b&gt; —&lt;br&gt;routing is driven purely by the detected Kind." style="shape=note;size=16;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;" parent="1" vertex="1">
+                    <mxGeometry x="980" y="620" width="400" height="150" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend" value="&lt;b&gt;FileKindDetector — first match wins&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;font face=&quot;Courier New&quot;&gt;%PDF&lt;/font&gt; → &lt;b&gt;pdf&lt;/b&gt;&lt;br&gt;&lt;font face=&quot;Courier New&quot;&gt;89 50 4E 47 0D 0A 1A 0A&lt;/font&gt; → &lt;b&gt;image&lt;/b&gt; (png)&lt;br&gt;&lt;font face=&quot;Courier New&quot;&gt;FF D8 FF&lt;/font&gt; → &lt;b&gt;image&lt;/b&gt; (jpeg)&lt;br&gt;&lt;font face=&quot;Courier New&quot;&gt;PK&lt;/font&gt; (zip) → claimed type, else extension&lt;br&gt;    → &lt;b&gt;docx&lt;/b&gt; / &lt;b&gt;xlsx&lt;/b&gt; / &lt;b&gt;pptx&lt;/b&gt; — else null&lt;br&gt;text/html, .html/.htm, or &lt;font face=&quot;Courier New&quot;&gt;&amp;lt;!doctype&lt;/font&gt;/&lt;font face=&quot;Courier New&quot;&gt;&amp;lt;html&lt;/font&gt;&lt;br&gt;    → &lt;b&gt;html&lt;/b&gt;&lt;br&gt;otherwise → null → &lt;font color=&quot;#b85450&quot;&gt;unsupported_type&lt;/font&gt;&lt;br&gt;&lt;br&gt;&lt;i&gt;claimed type ≠ detected type adds a warning,&lt;br&gt;never an error — the bytes win.&lt;/i&gt;" style="shape=note;size=16;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="890" width="370" height="240" as="geometry"/>
+                </mxCell>
+                <mxCell id="service" value="&lt;b&gt;ExtractionService.ExtractAsync&lt;/b&gt;&lt;br&gt;Parallel.ForEachAsync&lt;br&gt;MaxDegreeOfParallelism = MaxParallelism (4)&lt;br&gt;&lt;i&gt;results are written by file.Index — request order is preserved&lt;/i&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="470" y="900" width="300" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="perfile" value="per file: Activity &quot;docint.extract_file&quot;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="470" y="1016" width="300" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="telem_note" value="&lt;b&gt;Telemetry, per file&lt;/b&gt; (Telemetry/DocIntTelemetry.cs)&lt;br&gt;• span tags: docint.kind, docint.size_bytes, docint.outcome&lt;br&gt;• metric pagesProcessed{kind}, only when &gt; 0&lt;br&gt;• one log line: name, kind, sizeBytes, outcome, durationMs&lt;br&gt;&lt;br&gt;&lt;b&gt;&lt;font color=&quot;#b85450&quot;&gt;Never document content&lt;/font&gt;&lt;/b&gt; — filenames and sizes only." style="shape=note;size=16;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;" parent="1" vertex="1">
+                    <mxGeometry x="980" y="960" width="400" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="d_haserror" value="file.Error already set&lt;br&gt;by the reader?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
+                    <mxGeometry x="500" y="1100" width="240" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="router" value="&lt;b&gt;EngineRouter.RouteAsync&lt;/b&gt;&lt;br&gt;Dictionary&amp;lt;FileKind, IExtractionEngine&amp;gt;, built from engine.Kinds&lt;br&gt;linked CTS · CancelAfter(PerFileTimeoutSeconds = 100 s)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" parent="1" vertex="1">
+                    <mxGeometry x="450" y="1230" width="340" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="router_err" value="&lt;b&gt;EngineRouter — per-file failure paths, every one a 200&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;i&gt;before dispatch:&lt;/i&gt; no engine registered for the kind&lt;br&gt;  → &lt;b&gt;engine_error&lt;/b&gt; (early return, not an exception)&lt;br&gt;&lt;br&gt;&lt;i&gt;from the catch:&lt;/i&gt;&lt;br&gt;• our linked CTS fired → &lt;b&gt;timeout&lt;/b&gt;&lt;br&gt;• EngineUnconfiguredException → &lt;b&gt;engine_unconfigured&lt;/b&gt;&lt;br&gt;• any other exception → &lt;b&gt;engine_error&lt;/b&gt; (message only)&lt;br&gt;&lt;br&gt;&lt;b&gt;The one thing that is not caught:&lt;/b&gt; the &lt;i&gt;request&lt;/i&gt; token being&lt;br&gt;cancelled is rethrown — there is no client left to answer." style="shape=note;size=16;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;" parent="1" vertex="1">
+                    <mxGeometry x="980" y="1140" width="400" height="190" as="geometry"/>
+                </mxCell>
+                <mxCell id="layout_eng" value="&lt;b&gt;LayoutEngine&lt;/b&gt;&lt;br&gt;Kinds: pdf · docx · pptx · html&lt;br&gt;&lt;i&gt;four kinds, one engine, one call&lt;/i&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="1390" width="280" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="sheet_eng" value="&lt;b&gt;SpreadsheetEngine&lt;/b&gt;&lt;br&gt;Kinds: xlsx&lt;br&gt;&lt;i&gt;synchronous — Task.FromResult&lt;/i&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="540" y="1390" width="280" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="vision_eng" value="&lt;b&gt;VisionEngine&lt;/b&gt;&lt;br&gt;Kinds: image (png / jpeg)&lt;br&gt;&lt;i&gt;factual observations only&lt;/i&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+                    <mxGeometry x="980" y="1390" width="280" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="di_client" value="AzureLayoutAnalysisClient.AnalyzeAsync&lt;br&gt;DocumentIntelligenceClient&lt;br&gt;model &quot;prebuilt-layout&quot;&lt;br&gt;OutputContentFormat.Markdown&lt;br&gt;WaitUntil.Completed &lt;i&gt;(long-running op)&lt;/i&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="1500" width="280" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="openxml" value="OpenXML — SpreadsheetDocument.Open(MemoryStream)&lt;br&gt;typed cell values read straight from the stored XML,&lt;br&gt;never re-parsed display text&lt;br&gt;+ per-sheet Markdown rendering" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="540" y="1500" width="280" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="aoai_client" value="AzureVisionChatClient.DescribeImageAsync&lt;br&gt;ChatClient.CompleteChatAsync&lt;br&gt;VisionPrompt.System + image content part&lt;br&gt;deployment AzureOpenAI:DeploymentNameVision" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+                    <mxGeometry x="980" y="1500" width="280" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="azure_di" value="&lt;b&gt;Azure AI Document Intelligence&lt;/b&gt;&lt;br&gt;aif-eugo-swc · Sweden Central · private endpoint" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0078D4;strokeColor=#005A9E;fontColor=#ffffff;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="1630" width="280" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="no_net" value="&lt;b&gt;no network call at all&lt;/b&gt;&lt;br&gt;&lt;i&gt;the Azure-free path — keeps working while both&lt;br&gt;Azure endpoints are unreachable&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;dashed=1;" parent="1" vertex="1">
+                    <mxGeometry x="540" y="1630" width="280" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="azure_aoai" value="&lt;b&gt;Azure OpenAI — Foundry utility model&lt;/b&gt;&lt;br&gt;aif-eugo-swc · Sweden Central · private endpoint" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0078D4;strokeColor=#005A9E;fontColor=#ffffff;" parent="1" vertex="1">
+                    <mxGeometry x="980" y="1630" width="280" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="tmp_note" value="&lt;i&gt;OpenXML still spills package parts to /tmp even though the read is&lt;br&gt;from a MemoryStream — the chart&#39;s writable /tmp mount is load-bearing&lt;br&gt;under readOnlyRootFilesystem: true.&lt;/i&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=10;fontColor=#666666" parent="1" vertex="1">
+                    <mxGeometry x="500" y="1700" width="360" height="46" as="geometry"/>
+                </mxCell>
+                <mxCell id="out_layout" value="&lt;b&gt;markdown&lt;/b&gt;&lt;br&gt;pagesProcessed = page count&lt;br&gt;+ service warnings" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="1770" width="280" height="66" as="geometry"/>
+                </mxCell>
+                <mxCell id="out_sheet" value="&lt;b&gt;tables[] (typed rows) + markdown&lt;/b&gt;&lt;br&gt;pagesProcessed = sheet count&lt;br&gt;&lt;i&gt;numeric fidelity is the point&lt;/i&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="540" y="1770" width="280" height="66" as="geometry"/>
+                </mxCell>
+                <mxCell id="out_vision" value="&lt;b&gt;imageDescription&lt;/b&gt;&lt;br&gt;pagesProcessed = 1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="980" y="1770" width="280" height="66" as="geometry"/>
+                </mxCell>
+                <mxCell id="engine_err_note" value="&lt;b&gt;Errors the engines return themselves&lt;/b&gt;&lt;br&gt;• &lt;b&gt;engine_unconfigured&lt;/b&gt; — !client.IsConfigured&lt;br&gt;  (Layout: DocumentIntelligence:Endpoint unset;&lt;br&gt;   Vision: AzureOpenAI:Endpoint unset)&lt;br&gt;• &lt;b&gt;corrupt&lt;/b&gt; — DI RequestFailedException 400,&lt;br&gt;  or an unreadable XLSX package&lt;br&gt;&lt;br&gt;&lt;i&gt;Both land in the file&#39;s own error entry.&lt;br&gt;SpreadsheetEngine additionally degrades a single&lt;br&gt;bad cell to a warning rather than failing the file.&lt;/i&gt;" style="shape=note;size=16;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="1880" width="370" height="180" as="geometry"/>
+                </mxCell>
+                <mxCell id="result" value="&lt;b&gt;results[file.Index] = FileResult&lt;/b&gt;&lt;br&gt;one entry per input file, in request order" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="470" y="1900" width="320" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="resp200" value="&lt;b&gt;200 OK&lt;/b&gt;&lt;br&gt;{ files: [ { name, kind, markdown?, tables?,&lt;br&gt;imageDescription?, warnings[], error? } ] }" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="470" y="2010" width="320" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="constraint" value="&lt;b&gt;The load-bearing boundary:&lt;/b&gt; a well-formed request &lt;u&gt;always&lt;/u&gt; returns 200. Per-file failure is an &lt;font face=&quot;Courier New&quot;&gt;error&lt;/font&gt; entry beside the files that succeeded — one corrupt file never fails the call. Only a malformed &lt;i&gt;request&lt;/i&gt; yields 400." style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=middle;spacingLeft=12;" parent="1" vertex="1">
+                    <mxGeometry x="850" y="2010" width="530" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" parent="1" source="caller" target="post" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" parent="1" source="post" target="endpoint" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" parent="1" source="endpoint" target="reader" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" parent="1" source="reader" target="d_wellformed" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e5" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b85450;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="d_wellformed" target="e400" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e6" value="yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" parent="1" source="d_wellformed" target="buffer" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" parent="1" source="buffer" target="detect" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e8" value="kind + imageMediaType" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;" parent="1" source="detect" target="fileitem" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e9" value="over the cap, or 0 bytes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b85450;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" parent="1" source="buffer" target="prevalid_err" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e10" value="kind = null" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b85450;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="detect" target="prevalid_err" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#999999;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="hints_note" target="fileitem" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#999999;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0;entryY=1;entryDx=0;entryDy=0;" parent="1" source="legend" target="detect" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="225" y="830"/>
+                            <mxPoint x="360" y="830"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e13" value="reader returns IReadOnlyList&amp;lt;FileItem&amp;gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="fileitem" target="service" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e14" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" parent="1" source="service" target="perfile" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e15" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#999999;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="perfile" target="telem_note" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e16" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" parent="1" source="perfile" target="d_haserror" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e17" value="yes — bypass, no engine call" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b85450;fontSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="d_haserror" target="result" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1460" y="1140"/>
+                            <mxPoint x="1460" y="1930"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e18" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" parent="1" source="d_haserror" target="router" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e19" value="pdf · docx · pptx · html" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontStyle=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="router" target="layout_eng" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e20" value="xlsx" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontStyle=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="router" target="sheet_eng" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e21" value="image" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontStyle=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="router" target="vision_eng" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e22" value="exceptions" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#b85450;fontSize=10;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="router" target="router_err" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e23" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" parent="1" source="layout_eng" target="di_client" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e24" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" parent="1" source="sheet_eng" target="openxml" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e25" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" parent="1" source="vision_eng" target="aoai_client" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e26" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;" parent="1" source="di_client" target="azure_di" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e27" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;" parent="1" source="openxml" target="no_net" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e28" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;" parent="1" source="aoai_client" target="azure_aoai" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e29" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" parent="1" source="azure_di" target="out_layout" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e30" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.02;exitY=1;exitDx=0;exitDy=0;entryX=0.02;entryY=0;entryDx=0;entryDy=0;" parent="1" source="no_net" target="out_sheet" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e31" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" parent="1" source="azure_aoai" target="out_vision" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e32" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="out_layout" target="result" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e33" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="out_sheet" target="result" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e34" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="out_vision" target="result" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e35" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#b85450;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" parent="1" source="engine_err_note" target="result" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e36" value="Results.Json(response, DocIntJson.Options)&lt;br&gt;&lt;i&gt;camelCase · lowercase enums · nulls omitted&lt;/i&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;" parent="1" source="result" target="resp200" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
