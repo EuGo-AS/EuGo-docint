@@ -2,6 +2,11 @@ using Azure;
 using DocInt.Api.Configuration;
 using DocInt.Api.Health;
 using DocInt.Api.Startup;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -181,5 +186,109 @@ public class DependencyHealthMonitorTests
         await Monitor([], snapshot).ProbeOnceAsync(CancellationToken.None);
 
         Assert.Null(snapshot.Get(Service));
+    }
+}
+
+public class DependencyHealthCheckTests
+{
+    private const string Service = "Fake Service";
+
+    private static async Task<HealthCheckResult> Run(DependencyHealthSnapshot snapshot) =>
+        await new DependencyHealthCheck(Service, "https://fake.example/", snapshot)
+            .CheckHealthAsync(new HealthCheckContext(), CancellationToken.None);
+
+    [Fact]
+    public async Task A_reachable_dependency_is_healthy_and_carries_its_endpoint()
+    {
+        var snapshot = new DependencyHealthSnapshot();
+        snapshot.Set(Service, new DependencyState(true, null, DateTimeOffset.UtcNow));
+
+        var result = await Run(snapshot);
+
+        Assert.Equal(HealthStatus.Healthy, result.Status);
+        Assert.Equal("https://fake.example/", result.Data["endpoint"]);
+    }
+
+    // Degraded, never Unhealthy: the endpoints are shared by every replica, so an outage that
+    // returned 503 here would empty the Service rather than shed load.
+    [Fact]
+    public async Task An_unreachable_dependency_is_degraded_and_carries_the_reason()
+    {
+        var snapshot = new DependencyHealthSnapshot();
+        snapshot.Set(Service, new DependencyState(false, "HTTP 403: denied", DateTimeOffset.UtcNow));
+
+        var result = await Run(snapshot);
+
+        Assert.Equal(HealthStatus.Degraded, result.Status);
+        Assert.Equal("HTTP 403: denied", result.Description);
+    }
+
+    // Not seeded from the startup check: that check may have been disabled, and inheriting a
+    // verdict it never made would be a lie.
+    [Fact]
+    public async Task A_dependency_probed_for_the_first_time_says_so()
+    {
+        var result = await Run(new DependencyHealthSnapshot());
+
+        Assert.Equal(HealthStatus.Degraded, result.Status);
+        Assert.Equal("not yet checked", result.Description);
+    }
+}
+
+public class DependencyHealthRegistrationTests
+{
+    private sealed class ConfiguredFactory(bool enabled = true) : DocIntAppFactory
+    {
+        protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
+        {
+            builder.UseSetting("DocumentIntelligence:Endpoint", "https://di.example/");
+            builder.UseSetting("AzureOpenAI:Endpoint", "https://aoai.example/");
+            builder.UseSetting($"{DependencyCheckOptions.SectionName}:Enabled", enabled ? "true" : "false");
+            base.ConfigureWebHost(builder);   // leaves the startup check disabled, so nothing is dialled
+        }
+
+        // This is the one factory that turns the monitor on, so it is the one that would otherwise
+        // dial: the endpoints above are fake but the probes resolved against them are real, and with
+        // no ApiKey they reach for DefaultAzureCredential. Dropping them keeps the suite offline and
+        // costs the assertions nothing -- the checks are registered from configuration, not from the
+        // probe list, and a monitor with no probes does no work.
+        protected override void ConfigureFakes(IServiceCollection services) =>
+            services.RemoveAll<IStartupProbe>();
+    }
+
+    private static string[] CheckNames(WebApplicationFactory<Program> factory) =>
+        factory.Services.GetRequiredService<IOptions<HealthCheckServiceOptions>>()
+            .Value.Registrations.Select(r => r.Name).ToArray();
+
+    // One configured endpoint, one probe, one check — registered in one place so they cannot drift.
+    [Fact]
+    public void Each_configured_endpoint_registers_its_own_check_alongside_self()
+    {
+        using var factory = new ConfiguredFactory();
+
+        var names = CheckNames(factory);
+
+        Assert.Contains("self", names);
+        Assert.Contains(DocumentIntelligenceStartupProbe.ServiceName, names);
+        Assert.Contains(AzureOpenAIStartupProbe.ServiceName, names);
+    }
+
+    [Fact]
+    public void No_endpoint_configured_leaves_only_self()
+    {
+        using var factory = new DocIntAppFactory();
+
+        Assert.Equal(["self"], CheckNames(factory));
+    }
+
+    // Off means silent, not stuck: registering the checks without the monitor that feeds them
+    // would pin every dependency at "not yet checked" forever.
+    [Fact]
+    public void A_disabled_dependency_check_registers_neither_the_checks_nor_the_monitor()
+    {
+        using var factory = new ConfiguredFactory(enabled: false);
+
+        Assert.Equal(["self"], CheckNames(factory));
+        Assert.Empty(factory.Services.GetServices<IHostedService>().OfType<DependencyHealthMonitor>());
     }
 }

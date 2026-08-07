@@ -2,6 +2,8 @@ using System.ClientModel;
 using System.Diagnostics;
 using Azure;
 using DocInt.Api.Configuration;
+using DocInt.Api.Health;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Retry;
@@ -162,16 +164,63 @@ public static class StartupConnectivityCheckExtensions
     /// stub-first deployment stays legal, and only an endpoint someone actually asked for is
     /// treated as one the service must be able to reach.
     /// </summary>
+    /// <remarks>
+    /// The periodic health checks are registered here too, from the same condition, so the two
+    /// lists cannot drift: one configured endpoint, one probe, one check.
+    /// </remarks>
     public static WebApplicationBuilder AddStartupConnectivityCheck(this WebApplicationBuilder builder)
     {
+        var dependencyChecks = DependencyCheckEnabled(builder);
+
         if (IsSet(builder, $"{DocumentIntelligenceOptions.SectionName}:Endpoint"))
+        {
             builder.Services.AddSingleton<IStartupProbe, DocumentIntelligenceStartupProbe>();
+            if (dependencyChecks)
+            {
+                AddDependencyCheck(builder, DocumentIntelligenceStartupProbe.ServiceName,
+                    builder.Configuration[$"{DocumentIntelligenceOptions.SectionName}:Endpoint"]!);
+            }
+        }
+
         if (IsSet(builder, $"{AzureOpenAIOptions.SectionName}:Endpoint"))
+        {
             builder.Services.AddSingleton<IStartupProbe, AzureOpenAIStartupProbe>();
+            if (dependencyChecks)
+            {
+                AddDependencyCheck(builder, AzureOpenAIStartupProbe.ServiceName,
+                    builder.Configuration[$"{AzureOpenAIOptions.SectionName}:Endpoint"]!);
+            }
+        }
 
         builder.Services.AddHostedService<StartupConnectivityCheck>();
+
+        if (dependencyChecks)
+        {
+            builder.Services.AddSingleton<DependencyHealthSnapshot>();
+            builder.Services.AddHostedService<DependencyHealthMonitor>();
+        }
+
         return builder;
     }
+
+    /// <summary>
+    /// No "live" tag, deliberately: /alive filters on it, and a dependency outage must never
+    /// restart a pod that is serving correctly.
+    /// </summary>
+    private static void AddDependencyCheck(WebApplicationBuilder builder, string service, string endpoint) =>
+        builder.Services.AddHealthChecks().Add(new HealthCheckRegistration(
+            service,
+            sp => new DependencyHealthCheck(service, endpoint, sp.GetRequiredService<DependencyHealthSnapshot>()),
+            failureStatus: HealthStatus.Degraded,
+            tags: null));
+
+    /// <summary>
+    /// Read straight from configuration: options are not bound yet at registration time. Absent
+    /// or unparseable means on, matching <see cref="DependencyCheckOptions.Enabled"/>'s default.
+    /// </summary>
+    private static bool DependencyCheckEnabled(WebApplicationBuilder builder) =>
+        !bool.TryParse(builder.Configuration[$"{DependencyCheckOptions.SectionName}:Enabled"], out var enabled)
+        || enabled;
 
     private static bool IsSet(WebApplicationBuilder builder, string key) =>
         !string.IsNullOrWhiteSpace(builder.Configuration[key]);

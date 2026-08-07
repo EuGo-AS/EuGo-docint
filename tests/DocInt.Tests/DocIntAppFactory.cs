@@ -26,6 +26,11 @@ public class DocIntAppFactory : WebApplicationFactory<Program>
         // Same reason, one layer up: the startup connectivity check must not dial anything from a
         // test unless that test is about the check. StartupConnectivityCheckTests turns it back on.
         Blank(builder, $"{StartupProbeOptions.SectionName}:Enabled", "false");
+        // And once more for the periodic monitor, which dials the same probes on a timer. Without
+        // this it starts in every factory -- including ones that register a fake probe purely to
+        // count the startup check's attempts -- so its first round lands as an extra ProbeAsync and
+        // breaks those counts. A test gets the monitor only by asking for it.
+        Blank(builder, $"{DependencyCheckOptions.SectionName}:Enabled", "false");
 
         builder.ConfigureTestServices(ConfigureFakes);
     }

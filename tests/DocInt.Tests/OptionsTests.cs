@@ -177,8 +177,18 @@ public class OptionsTests
     {
         using var factory = new DocIntAppFactory();
         var o = factory.Services.GetRequiredService<IOptions<DependencyCheckOptions>>().Value;
-        Assert.True(o.Enabled);
+        // Enabled is deliberately not asserted through the factory: DocIntAppFactory blanks it to
+        // false so the monitor never dials from a test that is not about it, exactly as it already
+        // does for StartupProbe:Enabled. Reading it back here would only assert the harness. Its
+        // shipped-on default is covered below, where nothing sits in the way.
         Assert.Equal(30, o.IntervalSeconds);
         Assert.Equal(4, o.TimeoutSeconds);
     }
+
+    // A bool has no "absent", so an env key that is missing or misspelled must leave the reporting
+    // running rather than silently switch it off. StartupConnectivityCheckExtensions reads the same
+    // key straight from configuration and mirrors this default; the two have to agree.
+    [Fact]
+    public void Dependency_checks_are_on_unless_something_explicitly_says_otherwise() =>
+        Assert.True(new DependencyCheckOptions().Enabled);
 }
