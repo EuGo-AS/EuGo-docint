@@ -19,10 +19,14 @@ Limits (files per request, bytes per file, per-file timeout) are configurable â€
 
 ### Single PDF
 
+Request example:
+
 ```bash
 curl -s http://localhost:8090/v1/extract \
   -F "files=@invoice.pdf;type=application/pdf"
 ```
+
+Response example:
 
 ```json
 {
