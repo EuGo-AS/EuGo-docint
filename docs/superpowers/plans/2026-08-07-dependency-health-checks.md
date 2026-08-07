@@ -16,6 +16,17 @@ the report. `Degraded → 200`, so the pod is never evicted from the Service.
 
 **Spec:** `docs/superpowers/specs/2026-08-07-dependency-health-checks-design.md`
 
+> **Amended 2026-08-07, after execution.** The test factories written out in Tasks 5 and 6 are
+> superseded by what shipped — copy them from the tests on `main`, not from here. Registering the
+> monitor unconditionally made it consume whichever fake `IStartupProbe` a test had registered for
+> its own purposes, inflating `StartupConnectivityCheckTests` attempt counts (3→4, and 0→1 for the
+> disabled-check test) and dialling real Azure from `ConfiguredFactory`. `DocIntAppFactory` now
+> blanks `DocInt:DependencyCheck:Enabled` to `false` alongside `StartupProbe:Enabled`, so
+> `ConfiguredFactory` additionally needs `RemoveAll<IStartupProbe>()` and `DegradedFactory`
+> additionally needs `DependencyCheck:Enabled = "true"`. Task 3's
+> `Dependency_check_defaults_bind_from_appsettings` consequently stops asserting `Enabled` through
+> the factory. Only the unfiltered suite catches this class of breakage.
+
 ## Global Constraints
 
 - `net10.0`, `Nullable` and `ImplicitUsings` enabled. No new NuGet packages in any project.
