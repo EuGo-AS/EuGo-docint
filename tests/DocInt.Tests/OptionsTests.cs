@@ -151,4 +151,34 @@ public class OptionsTests
             base.ConfigureWebHost(builder);
         }
     }
+
+    // A timeout at or above the interval lets one slow probe overlap the next tick, so the
+    // pod ends up with two in-flight probes per dependency and a snapshot written out of
+    // order. Rejected at boot rather than debugged in production.
+    [Fact]
+    public void A_timeout_that_does_not_fit_inside_the_interval_fails_host_startup()
+    {
+        using var factory = new OverlappingDependencyCheckFactory();
+        Assert.ThrowsAny<Exception>(() => { _ = factory.Services; });
+    }
+
+    private sealed class OverlappingDependencyCheckFactory : DocIntAppFactory
+    {
+        protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
+        {
+            builder.UseSetting($"{DependencyCheckOptions.SectionName}:IntervalSeconds", "4");
+            builder.UseSetting($"{DependencyCheckOptions.SectionName}:TimeoutSeconds", "4");
+            base.ConfigureWebHost(builder);
+        }
+    }
+
+    [Fact]
+    public void Dependency_check_defaults_bind_from_appsettings()
+    {
+        using var factory = new DocIntAppFactory();
+        var o = factory.Services.GetRequiredService<IOptions<DependencyCheckOptions>>().Value;
+        Assert.True(o.Enabled);
+        Assert.Equal(30, o.IntervalSeconds);
+        Assert.Equal(4, o.TimeoutSeconds);
+    }
 }

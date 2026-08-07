@@ -63,6 +63,36 @@ public sealed class StartupProbeOptions
     public int TotalTimeoutSeconds { get; set; }
 }
 
+/// <summary>
+/// The periodic reachability check that keeps /healthz honest after boot. Nested under DocInt
+/// alongside StartupProbe (DocInt__DependencyCheck__Enabled from the environment).
+/// </summary>
+/// <remarks>
+/// Deliberately independent of <see cref="StartupProbeOptions"/>. The two run at different
+/// times with opposite consequences — boot-time and fatal versus periodic and informational —
+/// and deriving one's default from the other's value would be exactly the hidden fallback the
+/// comments in this file exist to forbid. A laptop outside the VNet turns off both, explicitly.
+/// </remarks>
+public sealed class DependencyCheckOptions
+{
+    public const string SectionName = "DocInt:DependencyCheck";
+
+    /// <summary>
+    /// The off switch, carrying its default for the same reason StartupProbe's does: a bool has
+    /// no "absent", and defaulting to false would turn a typo into silent non-reporting. False
+    /// registers neither the monitor nor the checks, so /healthz reports only "self" — off means
+    /// silent, not pinned at "not yet checked".
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    // No initializers below, matching the classes above: appsettings.json owns the shipped
+    // values, so a section deleted by accident fails ValidateOnStart instead of falling back to
+    // a second set of defaults hidden in this file.
+    public int IntervalSeconds { get; set; }
+    /// <summary>Ceiling on one probe. Must fit inside the interval, or ticks overlap.</summary>
+    public int TimeoutSeconds { get; set; }
+}
+
 public static class OptionsExtensions
 {
     public static WebApplicationBuilder AddDocIntOptions(this WebApplicationBuilder builder)
@@ -77,6 +107,14 @@ public static class OptionsExtensions
             .Validate(o => o.TotalTimeoutSeconds >= o.Attempts * o.AttemptTimeoutSeconds,
                 $"{StartupProbeOptions.SectionName}:TotalTimeoutSeconds must cover "
                 + "Attempts x AttemptTimeoutSeconds, or the final attempt is cut short")
+            .ValidateOnStart();
+        builder.Services.AddOptions<DependencyCheckOptions>()
+            .Bind(builder.Configuration.GetSection(DependencyCheckOptions.SectionName))
+            .Validate(o => o.IntervalSeconds > 0 && o.TimeoutSeconds > 0,
+                $"{DependencyCheckOptions.SectionName} interval and timeout must be positive")
+            .Validate(o => o.TimeoutSeconds < o.IntervalSeconds,
+                $"{DependencyCheckOptions.SectionName}:TimeoutSeconds must be less than "
+                + "IntervalSeconds, or a slow probe overlaps the next tick")
             .ValidateOnStart();
         builder.Services.AddOptions<DocIntOptions>()
             .Bind(builder.Configuration.GetSection(DocIntOptions.SectionName))
