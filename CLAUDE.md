@@ -114,9 +114,11 @@ disabled."`, so the commands above need a path **inside** the VNet. There are th
 3. **A separate public dev resource** — point the endpoints elsewhere entirely.
 
 Confirm with `Resolve-DnsName aif-eugo-swc.cognitiveservices.azure.com` (Windows) or `dig`;
-a `10.60.5.x` answer means you are connected, a public IP means you are not. On Windows use
-`Resolve-DnsName`, never `nslookup` — the latter bypasses the NRPT rules Tailscale installs and
-reports the public address even when the tunnel is working.
+a `10.60.5.x` answer means you are connected, a public IP means you are not. Two traps on
+Windows: use `Resolve-DnsName`, **never `nslookup`** — the latter bypasses the NRPT rules
+Tailscale installs and reports the public address even when the tunnel is working; and run
+`dotnet test` **from Windows, not WSL** — WSL2 under NAT networking inherits neither the tailnet
+route nor the NRPT rules, so the endpoints will not resolve there.
 
 Both endpoints share the one resource, on two hostnames:
 `https://aif-eugo-swc.cognitiveservices.azure.com/` for Document Intelligence and
