@@ -98,12 +98,27 @@ export AzureOpenAI__ApiKey=<key>                 # omit to use DefaultAzureCrede
 dotnet test --no-build src/DocInt.slnx --filter "FullyQualifiedName~LiveSmokeTests"
 ```
 
-**Network reachability (verified 2026-08-04).** The provisioned EuGo Foundry resource
+**Network reachability (verified 2026-08-07).** The provisioned EuGo Foundry resource
 `aif-eugo-swc` (Sweden Central) has `publicNetworkAccess: Disabled` — it answers only through
-its private endpoint, so the commands above **cannot be run against it from a developer
-machine**; a direct call returns `403 "Public access is disabled."` Run the live suite from
-inside the VNet (a pod or jumpbox on the cluster), or point the endpoints at a separate
-public dev resource. Both endpoints share the one resource, on two hostnames:
+its private endpoint. A call from an unconnected machine returns `403 "Public access is
+disabled."`, so the commands above need a path **inside** the VNet. There are three:
+
+1. **The Tailscale subnet router** — the normal developer path, and it does work from a
+   workstation. Start the VM (`az vm start -g rg-eugo-net-swc -n vm-eugo-vpn-swc`; it is
+   deallocated by default), join the tailnet, and the endpoints resolve to their private
+   addresses. Requires the route `10.60.0.0/16` approved and **Split DNS registered on the
+   public suffixes** `cognitiveservices.azure.com` / `openai.azure.com` — *not* the
+   `privatelink.*` forms, which silently never match. Setup and the failure signatures are in
+   `../EuGo-infra/docs/net.md` § *Developer access* and § *Split DNS binds to the public suffix*.
+2. **From inside the cluster** — a pod or jumpbox, no tunnel needed.
+3. **A separate public dev resource** — point the endpoints elsewhere entirely.
+
+Confirm with `Resolve-DnsName aif-eugo-swc.cognitiveservices.azure.com` (Windows) or `dig`;
+a `10.60.5.x` answer means you are connected, a public IP means you are not. On Windows use
+`Resolve-DnsName`, never `nslookup` — the latter bypasses the NRPT rules Tailscale installs and
+reports the public address even when the tunnel is working.
+
+Both endpoints share the one resource, on two hostnames:
 `https://aif-eugo-swc.cognitiveservices.azure.com/` for Document Intelligence and
 `https://aif-eugo-swc.openai.azure.com/` for Azure OpenAI. See "Azure resource shape" in
 `docs/superpowers/specs/2026-07-19-eugo-docint-design.md`.
