@@ -1,10 +1,12 @@
 using DocInt.Api.Api;
 using DocInt.Api.Configuration;
 using DocInt.Api.Engines;
+using DocInt.Api.Health;
 using DocInt.Api.Startup;
 using DocInt.Api.Telemetry;
 using DocInt.Api.Validation;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using Serilog;
@@ -70,7 +72,22 @@ try
         app.MapOpenApi();
     }
 
-    app.MapHealthChecks("/healthz");
+    // Two separate options objects, deliberately. /healthz is readiness and carries the
+    // dependency report; /alive is liveness and must stay a plain-text, local-only answer —
+    // sharing one object here would silently change the liveness body.
+    app.MapHealthChecks("/healthz", new HealthCheckOptions
+    {
+        ResponseWriter = HealthResponseWriter.WriteAsync,
+        // Explicit, though these are the framework's defaults: the whole design rests on a
+        // failing dependency not evicting the pod, and that must not be an inherited default
+        // someone can change without failing a test.
+        ResultStatusCodes =
+        {
+            [HealthStatus.Healthy] = StatusCodes.Status200OK,
+            [HealthStatus.Degraded] = StatusCodes.Status200OK,
+            [HealthStatus.Unhealthy] = StatusCodes.Status503ServiceUnavailable,
+        },
+    });
     app.MapHealthChecks("/alive", new HealthCheckOptions
     {
         Predicate = r => r.Tags.Contains("live")
