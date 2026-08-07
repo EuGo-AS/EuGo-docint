@@ -1,4 +1,5 @@
 using Azure;
+using DocInt.Api.Health;
 using DocInt.Api.Startup;
 
 namespace DocInt.Tests;
@@ -38,5 +39,32 @@ public class AzureFailureDescriptionTests
     public void A_timeout_says_so_rather_than_leaking_a_type_name()
     {
         Assert.Equal("timed out", AzureFailureDescription.Describe(new OperationCanceledException()));
+    }
+}
+
+public class DependencyHealthSnapshotTests
+{
+    [Fact]
+    public void An_unprobed_dependency_reads_back_as_null()
+    {
+        var snapshot = new DependencyHealthSnapshot();
+
+        Assert.Null(snapshot.Get("Azure OpenAI"));
+    }
+
+    [Fact]
+    public void The_latest_write_wins()
+    {
+        var snapshot = new DependencyHealthSnapshot();
+        var earlier = new DateTimeOffset(2026, 8, 7, 10, 0, 0, TimeSpan.Zero);
+
+        snapshot.Set("Azure OpenAI", new DependencyState(false, "HTTP 403: denied", earlier));
+        snapshot.Set("Azure OpenAI", new DependencyState(true, null, earlier.AddSeconds(30)));
+
+        var state = snapshot.Get("Azure OpenAI");
+        Assert.NotNull(state);
+        Assert.True(state.Reachable);
+        Assert.Null(state.Reason);
+        Assert.Equal(earlier.AddSeconds(30), state.CheckedAtUtc);
     }
 }
