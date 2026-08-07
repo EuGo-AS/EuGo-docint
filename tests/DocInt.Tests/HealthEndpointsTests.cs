@@ -24,7 +24,7 @@ public class HealthEndpointsTests : IClassFixture<DocIntAppFactory>
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.Equal("Healthy", doc.RootElement.GetProperty("status").GetString());
         var names = doc.RootElement.GetProperty("checks").EnumerateArray()
-            .Select(c => c.GetProperty("name").GetString()).ToArray();
+            .Select(c => c.GetProperty("name").GetString()!).ToArray();
         Assert.Equal(["self"], names);   // no endpoint configured, so no dependency checks
     }
 
