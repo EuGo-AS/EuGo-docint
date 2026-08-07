@@ -156,9 +156,15 @@ truth, nothing to drift.
     "StartupProbe": {
       "Enabled": true,
       "Attempts": 3,
-      "RetryDelaySeconds": 1,
+      "RetryDelaySeconds": 2,
       "AttemptTimeoutSeconds": 4,
-      "TotalTimeoutSeconds": 18
+      "TotalTimeoutSeconds": 25
+    },
+    // Periodic reachability check over the same endpoints; reported on /healthz, never fatal.
+    "DependencyCheck": {
+      "Enabled": true,
+      "IntervalSeconds": 30,
+      "TimeoutSeconds": 4
     }
   },
   // Both endpoints are blank by design — they are environment-specific and never committed.
@@ -190,9 +196,12 @@ truth, nothing to drift.
 | `DocInt:MaxParallelism` | `4` | `docint.maxParallelism` | Files processed concurrently. Raise it *with* `resources.limits.memory`, never alone — each in-flight file is buffered whole in memory |
 | `DocInt:StartupProbe:Enabled` | `true` | `extraEnv` | Dial every configured endpoint once at boot and refuse to start if one stays unreachable. See [Startup connectivity check](#startup-connectivity-check) |
 | `DocInt:StartupProbe:Attempts` | `3` | `extraEnv` | Attempts per endpoint, counting the first. Only a transport failure or a 408/429/5xx is retried |
-| `DocInt:StartupProbe:RetryDelaySeconds` | `1` | `extraEnv` | Base backoff between attempts; exponential with jitter |
+| `DocInt:StartupProbe:RetryDelaySeconds` | `2` | `extraEnv` | Base backoff between attempts; exponential with jitter, capped at 2× the base |
 | `DocInt:StartupProbe:AttemptTimeoutSeconds` | `4` | `extraEnv` | Ceiling on one attempt, so a hung handshake can't starve the rest. Must cover a cold `DefaultAzureCredential` token round-trip, not just the call |
-| `DocInt:StartupProbe:TotalTimeoutSeconds` | `18` | `extraEnv` | Ceiling on the whole check. Must be ≥ `Attempts × AttemptTimeoutSeconds` (rejected at boot otherwise); past ~20 s the pod's liveness probe restarts the container mid-check |
+| `DocInt:StartupProbe:TotalTimeoutSeconds` | `25` | `extraEnv` | Ceiling on the whole check. Must be ≥ `Attempts × AttemptTimeoutSeconds` (rejected at boot otherwise); past ~30 s the pod's liveness probe restarts the container mid-check |
+| `DocInt:DependencyCheck:Enabled` | `true` | `extraEnv` | Re-dial every configured endpoint every `IntervalSeconds` and report it on `/healthz`. False registers neither the monitor nor the checks, so `/healthz` reports only `self`. See [What `/healthz` reports](#what-healthz-reports) |
+| `DocInt:DependencyCheck:IntervalSeconds` | `30` | `extraEnv` | Seconds between rounds. At 30 s this is 2 calls/min per dependency per pod; for Azure OpenAI that is a one-token completion against the same quota real vision traffic uses |
+| `DocInt:DependencyCheck:TimeoutSeconds` | `4` | `extraEnv` | Ceiling on one probe. Must be **less than** `IntervalSeconds` (rejected at boot otherwise), so a slow probe cannot overlap the next tick |
 | `DocumentIntelligence:Endpoint` | `""` | `azure.documentIntelligence.endpoint` | `https://<resource>.cognitiveservices.azure.com/`. Serves PDF/DOCX/PPTX/HTML through the built-in `prebuilt-layout` model — no deployment name involved. Blank leaves those kinds on `engine_unconfigured` |
 | `DocumentIntelligence:ApiKey` | *unset — not in `appsettings.json`* | none, by design | Omit it and the client uses `DefaultAzureCredential` |
 | `AzureOpenAI:Endpoint` | `""` | `azure.openAI.endpoint` | `https://<resource>.openai.azure.com/` — the resource root only; the SDK appends `/openai/deployments/<name>/chat/completions`. Serves JPG/PNG |
@@ -261,6 +270,45 @@ routed through `extraEnv` would sit in plaintext in the release manifest. In-clu
 authenticates with Workload Identity — set `serviceAccount.azureClientId` and leave the keys
 unset. Note that `DefaultAzureCredential` in a container cannot fall back to the Azure CLI (the
 chiseled image has no shell), so a container needs a real identity leg or an API key.
+
+### What `/healthz` reports
+
+`/healthz` is the readiness probe. It answers **200** with a JSON body:
+
+```json
+{
+  "status": "Degraded",
+  "checks": [
+    { "name": "self", "status": "Healthy" },
+    { "name": "Azure OpenAI", "status": "Degraded",
+      "endpoint": "https://aif-eugo-swc.openai.azure.com/",
+      "lastCheckedUtc": "2026-08-07T10:12:03.0000000Z",
+      "reason": "HTTP 403: Public access is disabled." }
+  ]
+}
+```
+
+A background monitor re-dials each configured endpoint every
+`DocInt:DependencyCheck:IntervalSeconds` and records the verdict; the endpoint reads that
+record, so no request ever waits on Azure. Only configured endpoints appear — a stub-first
+deployment shows just `self`. In the window between boot and the first round a dependency reads
+`Degraded` with the reason `not yet checked`: a fresh pod never inherits a verdict it did not
+make itself.
+
+**A degraded dependency still returns 200, on purpose.** All replicas share the same Foundry
+resource, so failing readiness would not shed load onto a healthy pod — it would empty the
+Service and turn a partial outage into a total one, taking the Azure-free XLSX path down with
+it. PDF and image requests keep returning their per-file `engine_error` inside a 200, which is
+what Contract v1 promises. Only `Unhealthy` maps to 503, and nothing here produces it.
+
+`/alive` is the liveness probe and is deliberately blind to all of this: it evaluates only
+checks tagged `live`, and no dependency check carries that tag. A dependency outage must never
+restart a pod that is serving correctly.
+
+Because the startup connectivity check aborts the boot when a configured endpoint is
+unreachable, a dependency can only ever show as `Degraded` here if it failed *after* a
+successful start — which is exactly the gap this closes. With that check turned off, the
+report is the only reachability signal there is.
 
 ### Chart-only settings
 
