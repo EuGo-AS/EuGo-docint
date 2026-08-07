@@ -5,7 +5,6 @@ using DocInt.Api.Configuration;
 using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Retry;
-using Polly.Timeout;
 
 namespace DocInt.Api.Startup;
 
@@ -89,7 +88,7 @@ public sealed class StartupConnectivityCheck(
         }
         catch (Exception ex)
         {
-            var reason = Describe(ex);
+            var reason = AzureFailureDescription.Describe(ex);
             logger.LogError(
                 "Connection to {Service} at {Endpoint} failed after {Attempt} attempt(s) in {ElapsedMs} ms: {Reason}",
                 probe.Service, probe.Endpoint, attempts, ElapsedMs(started), reason);
@@ -116,7 +115,7 @@ public sealed class StartupConnectivityCheck(
                 {
                     logger.LogWarning(
                         "Startup connectivity attempt {Attempt} failed ({Reason}); retrying in {Delay}",
-                        args.AttemptNumber + 1, Describe(args.Outcome.Exception!), args.RetryDelay);
+                        args.AttemptNumber + 1, AzureFailureDescription.Describe(args.Outcome.Exception!), args.RetryDelay);
                     return default;
                 },
             })
@@ -146,29 +145,6 @@ public sealed class StartupConnectivityCheck(
         ClientResultException c when c.Status > 0 => c.Status,        // System.ClientModel SDKs
         _ => null,
     };
-
-    /// <summary>
-    /// One line, status first. Azure's exception messages run to many lines and can echo the
-    /// request back; only the summary line belongs in a log.
-    /// </summary>
-    private static string Describe(Exception ex) => ex switch
-    {
-        RequestFailedException r => $"HTTP {r.Status}{Code(r.ErrorCode)}: {FirstLine(r.Message)}",
-        ClientResultException c => $"HTTP {c.Status}: {FirstLine(c.Message)}",
-        TimeoutRejectedException or OperationCanceledException => "timed out",
-        _ => $"{ex.GetType().Name}: {FirstLine(ex.Message)}",
-    };
-
-    private static string Code(string? errorCode) =>
-        string.IsNullOrEmpty(errorCode) ? "" : $" {errorCode}";
-
-    private static string FirstLine(string message)
-    {
-        var line = message.AsSpan();
-        var end = line.IndexOfAny('\r', '\n');
-        if (end >= 0) line = line[..end];
-        return line.Length > 200 ? string.Concat(line[..200], "…") : line.ToString();
-    }
 
     private static int ElapsedMs(long started) => (int)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
 

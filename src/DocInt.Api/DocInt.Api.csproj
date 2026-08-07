@@ -36,4 +36,9 @@
   <ItemGroup>
     <ProjectReference Include="..\ServiceDefaults\ServiceDefaults.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The seams stay internal rather than being widened to public: AzureFailureDescription
+         and DependencyHealthMonitor.ProbeOnceAsync exist for the suite, not for callers. -->
+    <InternalsVisibleTo Include="DocInt.Tests" />
+  </ItemGroup>
 </Project>

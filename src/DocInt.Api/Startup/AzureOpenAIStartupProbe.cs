@@ -46,7 +46,9 @@ public sealed class AzureOpenAIStartupProbe : IStartupProbe
         return client.GetChatClient(o.DeploymentNameVision);
     }
 
-    public string Service => "Azure OpenAI";
+    public const string ServiceName = "Azure OpenAI";
+
+    public string Service => ServiceName;
 
     /// <summary>Read after validation has passed; registered only when non-blank.</summary>
     public string Endpoint => _options.Value.Endpoint ?? "";

@@ -30,7 +30,9 @@ public sealed class DocumentIntelligenceStartupProbe : IStartupProbe
         _client = new Lazy<DocumentIntelligenceAdministrationClient>(() => Create(options.Value));
     }
 
-    public string Service => "Document Intelligence";
+    public const string ServiceName = "Document Intelligence";
+
+    public string Service => ServiceName;
 
     /// <summary>Read after validation has passed; registered only when non-blank.</summary>
     public string Endpoint => _options.Value.Endpoint ?? "";
