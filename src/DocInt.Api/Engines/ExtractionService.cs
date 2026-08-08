@@ -23,7 +23,7 @@ public sealed class ExtractionService(
                 var kindName = file.Kind?.Name() ?? "unknown";
                 using var activity = telemetry.ActivitySource.StartActivity("docint.extract_file");
                 activity?.SetTag("docint.kind", kindName);
-                activity?.SetTag("docint.size_bytes", file.Bytes.Length);
+                activity?.SetTag("docint.size_bytes", file.SizeBytes);
 
                 var started = Stopwatch.GetTimestamp();
                 var outcome = file.Error is not null
@@ -39,7 +39,7 @@ public sealed class ExtractionService(
                         new KeyValuePair<string, object?>("kind", kindName));
                 logger.LogInformation(
                     "Processed {FileName}: kind={Kind} sizeBytes={SizeBytes} outcome={Outcome} durationMs={DurationMs:0}",
-                    file.Name, kindName, file.Bytes.Length, outcomeCode,
+                    file.Name, kindName, file.SizeBytes, outcomeCode,
                     Stopwatch.GetElapsedTime(started).TotalMilliseconds);
             });
         return new ExtractResponse(results);

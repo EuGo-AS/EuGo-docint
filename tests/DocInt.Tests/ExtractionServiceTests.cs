@@ -53,7 +53,8 @@ public class ExtractionServiceTests
 
         var files = Enumerable.Range(0, 8).Select(i => new FileItem
         {
-            Index = i, Name = $"f{i}.pdf", Kind = FileKind.Pdf, Bytes = TestBytes.Pdf
+            Index = i, Name = $"f{i}.pdf", Kind = FileKind.Pdf,
+            Bytes = TestBytes.Pdf, SizeBytes = TestBytes.Pdf.Length
         }).ToArray();
 
         var response = await service.ExtractAsync(files, CancellationToken.None);
@@ -73,7 +74,8 @@ public class ExtractionServiceTests
         var service = new ExtractionService(
             new EngineRouter([hanging], options), options, TestTelemetry(), NullLogger<ExtractionService>.Instance);
 
-        var files = new[] { new FileItem { Index = 0, Name = "slow.pdf", Kind = FileKind.Pdf, Bytes = TestBytes.Pdf } };
+        var files = new[] { new FileItem { Index = 0, Name = "slow.pdf", Kind = FileKind.Pdf,
+            Bytes = TestBytes.Pdf, SizeBytes = TestBytes.Pdf.Length } };
         var response = await service.ExtractAsync(files, CancellationToken.None);
 
         Assert.Equal(ErrorCodes.Timeout, response.Files[0].Error!.Code);
@@ -97,7 +99,8 @@ public class ExtractionServiceTests
         var service = new ExtractionService(
             new EngineRouter([engine], options), options, TestTelemetry(), NullLogger<ExtractionService>.Instance);
 
-        var files = new[] { new FileItem { Index = 0, Name = "weird.pdf", Kind = FileKind.Pdf, Bytes = TestBytes.Pdf } };
+        var files = new[] { new FileItem { Index = 0, Name = "weird.pdf", Kind = FileKind.Pdf,
+            Bytes = TestBytes.Pdf, SizeBytes = TestBytes.Pdf.Length } };
 
         // Must not throw out of ExtractAsync (that would 500 the whole batch) — the
         // engine's own OperationCanceledException is unrelated to our per-file timeout

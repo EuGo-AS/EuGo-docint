@@ -52,13 +52,14 @@ public sealed class MultipartExtractRequestReader(IOptions<DocIntOptions> option
                             $"more than {_options.MaxFilesPerRequest} files in one request");
                     var fileName = HeaderUtilities.RemoveQuotes(disposition.FileName).Value;
                     if (string.IsNullOrEmpty(fileName)) fileName = $"file-{files.Count}";
-                    var (bytes, tooLarge) = await BufferAsync(section.Body, _options.MaxFileBytes, ct);
+                    var (bytes, observed, tooLarge) = await BufferAsync(section.Body, _options.MaxFileBytes, ct);
                     var item = new FileItem
                     {
                         Index = files.Count,
                         Name = fileName,
                         ClaimedContentType = section.ContentType,
-                        Bytes = bytes
+                        Bytes = bytes,
+                        SizeBytes = observed
                     };
                     if (tooLarge)
                         item.Error = new FileError(ErrorCodes.TooLarge,
@@ -82,7 +83,7 @@ public sealed class MultipartExtractRequestReader(IOptions<DocIntOptions> option
                 }
                 else if (disposition.IsFormDisposition() && partName == "hints")
                 {
-                    var (bytes, tooLarge) = await BufferAsync(section.Body, MaxHintsBytes, ct);
+                    var (bytes, _, tooLarge) = await BufferAsync(section.Body, MaxHintsBytes, ct);
                     if (tooLarge)
                         throw new BadExtractRequestException(
                             $"hints part exceeds the limit of {MaxHintsBytes} bytes");
@@ -116,21 +117,27 @@ public sealed class MultipartExtractRequestReader(IOptions<DocIntOptions> option
         }
     }
 
-    private static async Task<(byte[] Bytes, bool TooLarge)> BufferAsync(Stream body, long maxBytes, CancellationToken ct)
+    private static async Task<(byte[] Bytes, long Observed, bool TooLarge)> BufferAsync(
+        Stream body, long maxBytes, CancellationToken ct)
     {
         using var buffered = new MemoryStream();
         var buffer = new byte[81920];
+        long observed = 0;
         while (true)
         {
             var read = await body.ReadAsync(buffer, ct);
             if (read == 0) break;
+            observed += read;
             if (buffered.Length + read > maxBytes)
             {
-                while (await body.ReadAsync(buffer, ct) != 0) { }
-                return ([], true);
+                // Drain the rest so the reader stays in sync with the multipart framing, and keep
+                // counting: the caller reports what arrived even though nothing is retained.
+                int drained;
+                while ((drained = await body.ReadAsync(buffer, ct)) != 0) observed += drained;
+                return ([], observed, true);
             }
             buffered.Write(buffer, 0, read);
         }
-        return (buffered.ToArray(), false);
+        return (buffered.ToArray(), observed, false);
     }
 }

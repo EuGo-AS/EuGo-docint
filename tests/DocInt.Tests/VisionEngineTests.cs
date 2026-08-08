@@ -6,7 +6,10 @@ namespace DocInt.Tests;
 public class VisionEngineTests
 {
     private static FileItem Png() => new()
-    { Index = 0, Name = "photo.png", Kind = FileKind.Image, ImageMediaType = "image/png", Bytes = TestBytes.Png };
+    {
+        Index = 0, Name = "photo.png", Kind = FileKind.Image, ImageMediaType = "image/png",
+        Bytes = TestBytes.Png, SizeBytes = TestBytes.Png.Length
+    };
 
     [Fact]
     public async Task Returns_description_with_pinned_prompt_and_media_type()

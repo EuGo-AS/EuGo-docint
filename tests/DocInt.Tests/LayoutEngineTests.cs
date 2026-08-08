@@ -7,7 +7,7 @@ namespace DocInt.Tests;
 public class LayoutEngineTests
 {
     private static FileItem Pdf() => new()
-    { Index = 0, Name = "manual.pdf", Kind = FileKind.Pdf, Bytes = TestBytes.Pdf };
+    { Index = 0, Name = "manual.pdf", Kind = FileKind.Pdf, Bytes = TestBytes.Pdf, SizeBytes = TestBytes.Pdf.Length };
 
     [Fact]
     public async Task Returns_markdown_pages_and_merged_warnings()

@@ -15,7 +15,8 @@ public class SpreadsheetEngineTests
     private static async Task<EngineOutcome> Run(byte[] bytes, string name = "mem.xlsx")
     {
         var engine = new SpreadsheetEngine();
-        var item = new FileItem { Index = 0, Name = name, Kind = FileKind.Xlsx, Bytes = bytes };
+        var item = new FileItem { Index = 0, Name = name, Kind = FileKind.Xlsx,
+            Bytes = bytes, SizeBytes = bytes.Length };
         return await engine.ExtractAsync(item, CancellationToken.None);
     }
 

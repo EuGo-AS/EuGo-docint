@@ -122,4 +122,34 @@ public class MultipartReaderTests
         await Assert.ThrowsAsync<BadExtractRequestException>(async () =>
             await Reader().ReadAsync(request, CancellationToken.None));
     }
+
+    // A part above the cap is drained and discarded, so Bytes is empty by design. SizeBytes must
+    // still report what arrived: bytes_processed and the per-file log line both read it, and a 0
+    // there hides exactly the uploads that consumed the most bandwidth.
+    [Fact]
+    public async Task Over_cap_file_reports_the_bytes_that_actually_arrived()
+    {
+        var bom = Golden.Bytes("bom.xlsx");   // 2811 bytes, comfortably over the 1 KiB cap below
+        using var form = Multipart.Form(
+            ("bom.xlsx", bom, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+        var items = await Reader(TestOptions.DocInt(maxFileBytes: 1024))
+            .ReadAsync(await RequestOf(form), CancellationToken.None);
+
+        var file = Assert.Single(items);
+        Assert.Equal(ErrorCodes.TooLarge, file.Error!.Code);
+        Assert.Empty(file.Bytes);
+        Assert.Equal(bom.Length, file.SizeBytes);
+    }
+
+    // Control: under the cap, the observed size and the retained buffer agree.
+    [Fact]
+    public async Task Under_cap_file_reports_its_own_length()
+    {
+        using var form = Multipart.Form(("a.pdf", TestBytes.Pdf, "application/pdf"));
+        var items = await Reader().ReadAsync(await RequestOf(form), CancellationToken.None);
+
+        var file = Assert.Single(items);
+        Assert.Null(file.Error);
+        Assert.Equal(TestBytes.Pdf.Length, file.SizeBytes);
+    }
 }
