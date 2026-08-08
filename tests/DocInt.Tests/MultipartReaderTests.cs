@@ -126,19 +126,27 @@ public class MultipartReaderTests
     // A part above the cap is drained and discarded, so Bytes is empty by design. SizeBytes must
     // still report what arrived: bytes_processed and the per-file log line both read it, and a 0
     // there hides exactly the uploads that consumed the most bandwidth.
+    //
+    // Must be bigger than BufferAsync's 81920-byte read buffer, and comfortably so: if the whole
+    // part arrives in a single ReadAsync, the cap trips on that first read, the drain loop's first
+    // call returns 0 immediately, and `observed` is already correct from the pre-drain accumulation
+    // alone — an implementation that reverted the drain loop to discarding the count (the old
+    // `while (await body.ReadAsync(buffer, ct) != 0) { }` shape) would still pass. Only a part that
+    // forces the drain loop across multiple reads actually exercises the accumulation this test
+    // exists to cover. Do not "simplify" this back to a small golden fixture.
     [Fact]
     public async Task Over_cap_file_reports_the_bytes_that_actually_arrived()
     {
-        var bom = Golden.Bytes("bom.xlsx");   // 2811 bytes, comfortably over the 1 KiB cap below
-        using var form = Multipart.Form(
-            ("bom.xlsx", bom, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+        var oversized = new byte[200_000];
+        using var form = Multipart.Form(("big.xlsx", oversized,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
         var items = await Reader(TestOptions.DocInt(maxFileBytes: 1024))
             .ReadAsync(await RequestOf(form), CancellationToken.None);
 
         var file = Assert.Single(items);
         Assert.Equal(ErrorCodes.TooLarge, file.Error!.Code);
         Assert.Empty(file.Bytes);
-        Assert.Equal(bom.Length, file.SizeBytes);
+        Assert.Equal(oversized.Length, file.SizeBytes);
     }
 
     // Control: under the cap, the observed size and the retained buffer agree.
