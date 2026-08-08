@@ -82,6 +82,18 @@ spec:
           {{- end }}
           {{- end }}
           {{- end }}
+          {{- /* OTEL_SERVICE_NAME is derived rather than user-supplied: without it every release
+                 reports as the assembly name (DocInt.Api) and two namespaces cannot be told
+                 apart. Rendered only alongside an endpoint -- with no exporter configured the var
+                 would be inert clutter. `$` inside the `with` block because `.` is rebound to the
+                 endpoint string. */}}
+          {{- with .Values.otel.endpoint }}
+          {{- $env = append $env (dict "name" "OTEL_EXPORTER_OTLP_ENDPOINT" "value" .) }}
+          {{- $env = append $env (dict "name" "OTEL_SERVICE_NAME" "value" (include "eugo-docint.fullname" $)) }}
+          {{- with $.Values.otel.protocol }}
+          {{- $env = append $env (dict "name" "OTEL_EXPORTER_OTLP_PROTOCOL" "value" .) }}
+          {{- end }}
+          {{- end }}
           {{- $env = concat $env .Values.extraEnv }}
           {{- with $env }}
           env:

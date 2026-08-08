@@ -99,3 +99,17 @@ jobs:
           grep -q 'value: "0"' matched-parallelism.txt
           render > default.yaml
           ! grep -q 'DocInt__' default.yaml
+      # The counters added in this release are invisible without an OTLP endpoint, so the chart
+      # has to be able to set one. Both halves are asserted: set renders all three vars (the
+      # service name is derived, not user-supplied, and without it every namespace reports as
+      # DocInt.Api), and unset renders none of them -- a release that configures no collector
+      # must behave exactly as it did before.
+      - name: otel env renders only when an endpoint is set
+        run: |
+          render() { helm template ci charts/eugo-docint --set image.repository=r.example/eugo-docint "$@"; }
+          render --set otel.endpoint=http://collector:4317 --set otel.protocol=grpc > otel-on.yaml
+          grep -q 'OTEL_EXPORTER_OTLP_ENDPOINT' otel-on.yaml
+          grep -q 'OTEL_EXPORTER_OTLP_PROTOCOL' otel-on.yaml
+          grep -q 'OTEL_SERVICE_NAME' otel-on.yaml
+          render > otel-off.yaml
+          ! grep -q 'OTEL_' otel-off.yaml

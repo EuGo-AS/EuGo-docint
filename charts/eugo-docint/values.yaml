@@ -53,6 +53,16 @@ docint:
   # Files processed concurrently — raise with the memory limit, not alone
   maxParallelism: ""
 
+# Telemetry export. Empty endpoint omits all three vars below, which is the shipped behaviour:
+# traces and metrics are collected in-process and go nowhere. Set it to an OTLP collector to
+# ship them. The counters on /v1/extract are unreadable outside the pod without this.
+otel:
+  # Sets OTEL_EXPORTER_OTLP_ENDPOINT, e.g. http://otel-collector.observability:4317
+  endpoint: ""
+  # Sets OTEL_EXPORTER_OTLP_PROTOCOL. The .NET exporter defaults to grpc; many collectors accept
+  # only http/protobuf, so this is first-class rather than left to extraEnv.
+  protocol: ""
+
 # Verbatim extra env entries, for keys with no first-class value above, e.g.:
 # - name: Serilog__MinimumLevel__Default
 #   value: "Debug"
