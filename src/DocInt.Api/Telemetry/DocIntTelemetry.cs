@@ -12,6 +12,7 @@ public sealed class DocIntTelemetry : IDisposable
     public const string BytesProcessedInstrument = "docint.bytes_processed";
     public const string FileDurationInstrument = "docint.file_duration";
     public const string RejectedRequestsInstrument = "docint.rejected_requests";
+    public const string DuplicateFilesInstrument = "docint.duplicate_files";
 
     private readonly Meter _meter;
 
@@ -38,6 +39,11 @@ public sealed class DocIntTelemetry : IDisposable
             description: "Requests rejected as malformed (400), by reason. Not a complete count of "
                 + "rejections: a body over the cap with no Content-Length is terminated by Kestrel "
                 + "before this code runs");
+        DuplicateFiles = _meter.CreateCounter<long>(DuplicateFilesInstrument, unit: "files",
+            description: "Repeated file submissions. scope=request is exact. scope=pod is a LOWER "
+                + "BOUND, not a rate: the Service load-balances across replicas, so a repeat lands "
+                + "on the pod that saw it roughly 1/N of the time, and the value moves when the "
+                + "HPA scales");
     }
 
     public ActivitySource ActivitySource { get; } = new(SourceName);
@@ -47,6 +53,7 @@ public sealed class DocIntTelemetry : IDisposable
     public Counter<long> BytesProcessed { get; }
     public Histogram<double> FileDuration { get; }
     public Counter<long> RejectedRequests { get; }
+    public Counter<long> DuplicateFiles { get; }
 
     public void Dispose()
     {

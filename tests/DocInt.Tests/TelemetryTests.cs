@@ -1,6 +1,7 @@
 using System.Diagnostics.Metrics;
 using System.Net;
 using System.Text;
+using DocInt.Api.Configuration;
 using DocInt.Api.Contracts;
 using DocInt.Api.Telemetry;
 using DocInt.Api.Validation;
@@ -139,5 +140,81 @@ public class TelemetryTests : IClassFixture<ContractTestFactory>
         var measurements = collector.GetMeasurementSnapshot();
         Assert.Equal(1, measurements.Sum(m => m.Value));
         Assert.All(measurements, m => Assert.Equal(reason, m.Tags["reason"]));
+    }
+
+    // Each of these constructs its own factory rather than sharing the class fixture. The pod
+    // cache is a singleton for the lifetime of a host, so a golden posted by an earlier test in
+    // this class would already be in it and scope=pod would read 1 where the test expects 0 —
+    // a failure that depends on test execution order, green one run and red the next.
+    private static MultipartFormDataContent Bom(string name = "bom.xlsx") => Multipart.Form(
+        (name, Golden.Bytes("bom.xlsx"),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+
+    private static long ScopeTotal(IReadOnlyList<CollectedMeasurement<long>> ms, string scope) =>
+        ms.Where(m => (string?)m.Tags["scope"] == scope).Sum(m => m.Value);
+
+    // Same content, different filenames: duplicates are detected on bytes, not on names.
+    [Fact]
+    public async Task Duplicate_files_counts_repeats_inside_one_request()
+    {
+        using var factory = new ContractTestFactory();
+        using var collector = new MetricCollector<long>(
+            factory.Services.GetRequiredService<IMeterFactory>(),
+            DocIntTelemetry.MeterName, DocIntTelemetry.DuplicateFilesInstrument);
+
+        var bytes = Golden.Bytes("bom.xlsx");
+        const string ContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        using var form = Multipart.Form(("a.xlsx", bytes, ContentType), ("b.xlsx", bytes, ContentType));
+        (await factory.CreateClient().PostAsync("/v1/extract", form)).EnsureSuccessStatusCode();
+
+        var measurements = collector.GetMeasurementSnapshot();
+        Assert.Equal(1, ScopeTotal(measurements, "request"));
+        Assert.Equal(0, ScopeTotal(measurements, "pod"));
+    }
+
+    [Fact]
+    public async Task Duplicate_files_counts_a_repeat_across_requests_on_the_same_pod()
+    {
+        using var factory = new ContractTestFactory();
+        var client = factory.CreateClient();
+        using var collector = new MetricCollector<long>(
+            factory.Services.GetRequiredService<IMeterFactory>(),
+            DocIntTelemetry.MeterName, DocIntTelemetry.DuplicateFilesInstrument);
+
+        using (var first = Bom()) (await client.PostAsync("/v1/extract", first)).EnsureSuccessStatusCode();
+        using (var second = Bom()) (await client.PostAsync("/v1/extract", second)).EnsureSuccessStatusCode();
+
+        var measurements = collector.GetMeasurementSnapshot();
+        Assert.Equal(0, ScopeTotal(measurements, "request"));
+        Assert.Equal(1, ScopeTotal(measurements, "pod"));
+        // Both requests emit, including the one with nothing to report: an enabled tracker
+        // produces a zero line, and only a disabled one produces no series at all.
+        Assert.Equal(4, measurements.Count);
+    }
+
+    // The other half of that contract: off means silent, so a dashboard can tell "not measured"
+    // from "measured, none found".
+    [Fact]
+    public async Task Duplicate_files_emits_nothing_when_tracking_is_disabled()
+    {
+        using var factory = new NoDuplicateTrackingFactory();
+        var client = factory.CreateClient();
+        using var collector = new MetricCollector<long>(
+            factory.Services.GetRequiredService<IMeterFactory>(),
+            DocIntTelemetry.MeterName, DocIntTelemetry.DuplicateFilesInstrument);
+
+        using (var first = Bom()) (await client.PostAsync("/v1/extract", first)).EnsureSuccessStatusCode();
+        using (var second = Bom()) (await client.PostAsync("/v1/extract", second)).EnsureSuccessStatusCode();
+
+        Assert.Empty(collector.GetMeasurementSnapshot());
+    }
+
+    private sealed class NoDuplicateTrackingFactory : ContractTestFactory
+    {
+        protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
+        {
+            builder.UseSetting($"{DuplicateTrackingOptions.SectionName}:Enabled", "false");
+            base.ConfigureWebHost(builder);
+        }
     }
 }

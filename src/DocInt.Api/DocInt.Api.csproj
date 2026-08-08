@@ -32,6 +32,10 @@
     <!-- Brief pinned 2.3.0, which was never published as stable (only 2.3.0-beta.1/2 exist on
          nuget.org); 2.1.0 is the latest stable release on the 2.x line. -->
     <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
+    <!-- XxHash64 for duplicate-submission counting. Non-cryptographic on purpose: there is no
+         security boundary here, only a diagnostic counter, and the 64-bit output is exactly what
+         the tracker's cache stores. -->
+    <PackageReference Include="System.IO.Hashing" Version="10.0.10" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\ServiceDefaults\ServiceDefaults.csproj" />
