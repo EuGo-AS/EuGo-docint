@@ -93,6 +93,32 @@ public sealed class DependencyCheckOptions
     public int TimeoutSeconds { get; set; }
 }
 
+/// <summary>
+/// Per-pod tracking of repeated file submissions, feeding docint.duplicate_files. Nested under
+/// DocInt alongside the other knobs (DocInt__DuplicateTracking__Enabled from the environment).
+/// </summary>
+/// <remarks>
+/// The cache holds 64-bit hashes and nothing else — no bytes, no filenames, nothing
+/// reconstructable — so this does not make the service a document store.
+/// </remarks>
+public sealed class DuplicateTrackingOptions
+{
+    public const string SectionName = "DocInt:DuplicateTracking";
+
+    /// <summary>
+    /// The off switch, carrying its default for the same reason StartupProbe's and
+    /// DependencyCheck's do: a bool has no "absent", and defaulting to false would turn a typo
+    /// into silent non-measurement. False skips the hashing as well as the accounting — the hash
+    /// is the cost — and emits no measurements at all, so a dashboard shows "no data" rather than
+    /// a zero that would read as "no duplicates".
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    // No initializer, matching the classes above: appsettings.json owns the shipped value.
+    /// <summary>Distinct hashes retained per pod, FIFO. ~3 MB at 100 000.</summary>
+    public int Capacity { get; set; }
+}
+
 public static class OptionsExtensions
 {
     public static WebApplicationBuilder AddDocIntOptions(this WebApplicationBuilder builder)
@@ -115,6 +141,11 @@ public static class OptionsExtensions
             .Validate(o => o.TimeoutSeconds < o.IntervalSeconds,
                 $"{DependencyCheckOptions.SectionName}:TimeoutSeconds must be less than "
                 + "IntervalSeconds, or a slow probe overlaps the next tick")
+            .ValidateOnStart();
+        builder.Services.AddOptions<DuplicateTrackingOptions>()
+            .Bind(builder.Configuration.GetSection(DuplicateTrackingOptions.SectionName))
+            .Validate(o => o.Capacity > 0,
+                $"{DuplicateTrackingOptions.SectionName}:Capacity must be positive")
             .ValidateOnStart();
         builder.Services.AddOptions<DocIntOptions>()
             .Bind(builder.Configuration.GetSection(DocIntOptions.SectionName))

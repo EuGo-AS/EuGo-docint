@@ -53,6 +53,7 @@ public class OptionsTests
     [InlineData("DocInt:MaxFilesPerRequest")]
     [InlineData("DocInt:PerFileTimeoutSeconds")]
     [InlineData("DocInt:MaxParallelism")]
+    [InlineData("DocInt:DuplicateTracking:Capacity")]
     public void Zero_limit_fails_host_startup(string key)
     {
         var ex = Assert.Throws<OptionsValidationException>(() => Validate((key, "0")));
@@ -191,4 +192,18 @@ public class OptionsTests
     [Fact]
     public void Dependency_checks_are_on_unless_something_explicitly_says_otherwise() =>
         Assert.True(new DependencyCheckOptions().Enabled);
+
+    [Fact]
+    public void Duplicate_tracking_capacity_binds_from_appsettings()
+    {
+        using var factory = new DocIntAppFactory();
+        var o = factory.Services.GetRequiredService<IOptions<DuplicateTrackingOptions>>().Value;
+        Assert.Equal(100_000, o.Capacity);
+    }
+
+    // Same rule as DependencyCheckOptions: a bool has no "absent", so a missing or misspelled env
+    // key must leave tracking on rather than silently switch it off.
+    [Fact]
+    public void Duplicate_tracking_is_on_unless_something_explicitly_says_otherwise() =>
+        Assert.True(new DuplicateTrackingOptions().Enabled);
 }

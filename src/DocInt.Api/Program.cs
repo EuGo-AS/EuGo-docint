@@ -28,6 +28,7 @@ try
     builder.AddStartupConnectivityCheck();
 
     builder.Services.AddSingleton<DocIntTelemetry>();
+    builder.Services.AddSingleton<DuplicateFileTracker>();
     builder.Services.ConfigureOpenTelemetryTracerProvider(t => t.AddSource(DocIntTelemetry.SourceName));
     builder.Services.ConfigureOpenTelemetryMeterProvider(m => m.AddMeter(DocIntTelemetry.MeterName));
     builder.WebHost.ConfigureKestrel((context, kestrel) =>
