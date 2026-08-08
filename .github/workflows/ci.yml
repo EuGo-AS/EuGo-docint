@@ -124,7 +124,12 @@ jobs:
           grep -q 'averageValue: 900Mi' hpa-on.yaml
           grep -q 'stabilizationWindowSeconds: 600' hpa-on.yaml
           render --set autoscaling.targetMemoryAverageValue="" > hpa-off.yaml
-          ! grep -q 'averageValue' hpa-off.yaml
+          # `set -e` does not fire on a negated command, so a bare `! grep` that is not the last
+          # line in a step asserts nothing -- the step's exit status comes from whatever runs
+          # after it. Explicit `if` instead, so this does not depend on staying last.
+          if grep -q 'averageValue' hpa-off.yaml; then
+            echo "memory metric still rendered after blanking targetMemoryAverageValue"; exit 1
+          fi
           grep -q 'averageUtilization: 70' hpa-off.yaml
       # Same omit-when-empty contract as the other DocInt limits: 0 and false must reach the pod and
       # fail ValidateOnStart, only an empty value means "unset". Two of the five are asserted because
@@ -143,4 +148,6 @@ jobs:
           grep -A1 'DocInt__MaxRequestFileBytes' adm-total.yaml > adm-total-matched.txt
           grep -q 'value: "0"' adm-total-matched.txt
           render > adm-default.yaml
-          ! grep -q 'DocInt__' adm-default.yaml
+          if grep -q 'DocInt__' adm-default.yaml; then
+            echo "a DocInt__ var rendered with every admission value unset"; exit 1
+          fi
