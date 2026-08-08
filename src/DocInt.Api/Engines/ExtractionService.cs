@@ -34,6 +34,7 @@ public sealed class ExtractionService(
 
                 var outcomeCode = outcome.Result.Error?.Code ?? "ok";
                 activity?.SetTag("docint.outcome", outcomeCode);
+                var elapsed = Stopwatch.GetElapsedTime(started);
 
                 var kindTag = new KeyValuePair<string, object?>("kind", kindName);
                 var outcomeTag = new KeyValuePair<string, object?>("outcome", outcomeCode);
@@ -44,10 +45,11 @@ public sealed class ExtractionService(
                 // what was read, not what came back out.
                 telemetry.FilesProcessed.Add(1, kindTag, outcomeTag);
                 telemetry.BytesProcessed.Add(file.SizeBytes, kindTag);
+                telemetry.FileDuration.Record(elapsed.TotalSeconds, kindTag, outcomeTag);
                 logger.LogInformation(
                     "Processed {FileName}: kind={Kind} sizeBytes={SizeBytes} outcome={Outcome} durationMs={DurationMs:0}",
                     file.Name, kindName, file.SizeBytes, outcomeCode,
-                    Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+                    elapsed.TotalMilliseconds);
             });
         return new ExtractResponse(results);
     }

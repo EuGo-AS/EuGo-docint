@@ -81,4 +81,27 @@ public class TelemetryTests : IClassFixture<ContractTestFactory>
         Assert.Equal(expected, measurements.Sum(m => m.Value));
         Assert.All(measurements, m => Assert.Contains(m.Tags["kind"], new[] { "xlsx", "unknown" }));
     }
+
+    // Tags and one measurement per file — deliberately no assertion on magnitude, which is
+    // timing-dependent and would flake in CI.
+    [Fact]
+    public async Task File_duration_records_one_measurement_per_file_with_kind_and_outcome()
+    {
+        var meterFactory = _factory.Services.GetRequiredService<IMeterFactory>();
+        using var collector = new MetricCollector<double>(
+            meterFactory, DocIntTelemetry.MeterName, DocIntTelemetry.FileDurationInstrument);
+
+        using var form = MixedBatch();
+        var response = await _factory.CreateClient().PostAsync("/v1/extract", form);
+        response.EnsureSuccessStatusCode();
+
+        var measurements = collector.GetMeasurementSnapshot();
+        Assert.Equal(3, measurements.Count);
+        Assert.All(measurements, m =>
+        {
+            Assert.True(m.Value >= 0);
+            Assert.NotNull(m.Tags["kind"]);
+            Assert.NotNull(m.Tags["outcome"]);
+        });
+    }
 }
