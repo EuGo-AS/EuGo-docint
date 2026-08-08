@@ -35,6 +35,10 @@ public sealed class MultipartExtractRequestReader(IOptions<DocIntOptions> option
             throw new BadExtractRequestException(RejectReasons.BoundaryMissing, "multipart boundary missing");
 
         var files = new List<FileItem>();
+        // Accumulated across parts, so two files that each pass MaxFileBytes cannot together
+        // exceed what the pod agreed to hold. Counts observed bytes, not retained ones: an
+        // over-cap file retains nothing but still arrived and still occupied the socket.
+        long acceptedBytes = 0;
         string? hintsJson = null;
         var reader = new MultipartReader(boundary, request.Body);
         try
@@ -53,6 +57,10 @@ public sealed class MultipartExtractRequestReader(IOptions<DocIntOptions> option
                     var fileName = HeaderUtilities.RemoveQuotes(disposition.FileName).Value;
                     if (string.IsNullOrEmpty(fileName)) fileName = $"file-{files.Count}";
                     var (bytes, observed, tooLarge) = await BufferAsync(section.Body, _options.MaxFileBytes, ct);
+                    acceptedBytes += observed;
+                    if (acceptedBytes > _options.MaxRequestFileBytes)
+                        throw new BadExtractRequestException(RejectReasons.RequestFilesTooLarge,
+                            $"file parts total more than {_options.MaxRequestFileBytes} bytes");
                     var item = new FileItem
                     {
                         Index = files.Count,

@@ -160,4 +160,47 @@ public class MultipartReaderTests
         Assert.Null(file.Error);
         Assert.Equal(TestBytes.Pdf.Length, file.SizeBytes);
     }
+
+    // Two files, each inside MaxFileBytes, whose sum is over MaxRequestFileBytes. Neither is a
+    // per-file too_large, so without a running sum the pair sails through and the pod buffers
+    // more than the cap allows. Checked while reading rather than only against Content-Length,
+    // which chunked encoding omits entirely.
+    [Fact]
+    public async Task Files_summing_over_the_request_total_is_a_request_level_rejection()
+    {
+        using var form = Multipart.Form(
+            ("a.pdf", Pad(TestBytes.Pdf, 4000), "application/pdf"),
+            ("b.pdf", Pad(TestBytes.Pdf, 4000), "application/pdf"));
+        var request = await RequestOf(form);
+        var reader = Reader(TestOptions.DocInt(maxFileBytes: 4096, maxRequestFileBytes: 6000));
+
+        var ex = await Assert.ThrowsAsync<BadExtractRequestException>(
+            () => reader.ReadAsync(request, CancellationToken.None));
+
+        Assert.Equal(RejectReasons.RequestFilesTooLarge, ex.Reason);
+    }
+
+    // Control: the same two files under the cap are accepted, so it is the sum that rejects and
+    // not the per-file cap or the declared-size check ahead of it.
+    [Fact]
+    public async Task Files_summing_under_the_request_total_are_accepted()
+    {
+        using var form = Multipart.Form(
+            ("a.pdf", Pad(TestBytes.Pdf, 4000), "application/pdf"),
+            ("b.pdf", Pad(TestBytes.Pdf, 4000), "application/pdf"));
+        var request = await RequestOf(form);
+        var reader = Reader(TestOptions.DocInt(maxFileBytes: 4096, maxRequestFileBytes: 100_000));
+
+        var files = await reader.ReadAsync(request, CancellationToken.None);
+
+        Assert.Equal(2, files.Count);
+        Assert.All(files, f => Assert.Null(f.Error));
+    }
+
+    private static byte[] Pad(byte[] prefix, int total)
+    {
+        var padded = new byte[total];
+        prefix.CopyTo(padded, 0);
+        return padded;
+    }
 }

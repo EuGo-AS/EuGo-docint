@@ -24,6 +24,7 @@ public static class RejectReasons
     public const string NotMultipart = "not_multipart";
     public const string BoundaryMissing = "boundary_missing";
     public const string TooManyFiles = "too_many_files";
+    public const string RequestFilesTooLarge = "request_files_too_large";
     public const string HintsTooLarge = "hints_too_large";
     public const string HintsInvalid = "hints_invalid";
     public const string MalformedBody = "malformed_body";
