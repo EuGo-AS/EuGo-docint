@@ -34,9 +34,16 @@ public sealed class ExtractionService(
 
                 var outcomeCode = outcome.Result.Error?.Code ?? "ok";
                 activity?.SetTag("docint.outcome", outcomeCode);
+
+                var kindTag = new KeyValuePair<string, object?>("kind", kindName);
+                var outcomeTag = new KeyValuePair<string, object?>("outcome", outcomeCode);
                 if (outcome.PagesProcessed > 0)
-                    telemetry.PagesProcessed.Add(outcome.PagesProcessed,
-                        new KeyValuePair<string, object?>("kind", kindName));
+                    telemetry.PagesProcessed.Add(outcome.PagesProcessed, kindTag);
+                // Unconditional, unlike PagesProcessed above — do not copy that guard here. A
+                // "files processed" total that drops failures is not a total, and bytes must count
+                // what was read, not what came back out.
+                telemetry.FilesProcessed.Add(1, kindTag, outcomeTag);
+                telemetry.BytesProcessed.Add(file.SizeBytes, kindTag);
                 logger.LogInformation(
                     "Processed {FileName}: kind={Kind} sizeBytes={SizeBytes} outcome={Outcome} durationMs={DurationMs:0}",
                     file.Name, kindName, file.SizeBytes, outcomeCode,
