@@ -1,3 +1,4 @@
+using DocInt.Api.Admission;
 using DocInt.Api.Api;
 using DocInt.Api.Configuration;
 using DocInt.Api.Engines;
@@ -41,6 +42,7 @@ try
     builder.Services.AddSingleton<MultipartExtractRequestReader>();
     builder.Services.AddSingleton<EngineRouter>();
     builder.Services.AddSingleton<ExtractionService>();
+    builder.Services.AddSingleton<RequestAdmissionGate>();
     builder.Services.AddSingleton<IExtractionEngine, SpreadsheetEngine>();
     builder.Services.AddSingleton<ILayoutAnalysisClient, AzureLayoutAnalysisClient>();
     builder.Services.AddSingleton<IExtractionEngine, LayoutEngine>();

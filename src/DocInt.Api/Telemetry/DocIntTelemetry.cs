@@ -13,6 +13,7 @@ public sealed class DocIntTelemetry : IDisposable
     public const string FileDurationInstrument = "docint.file_duration";
     public const string RejectedRequestsInstrument = "docint.rejected_requests";
     public const string DuplicateFilesInstrument = "docint.duplicate_files";
+    public const string ShedRequestsInstrument = "docint.shed_requests";
 
     private readonly Meter _meter;
 
@@ -44,6 +45,11 @@ public sealed class DocIntTelemetry : IDisposable
                 + "BOUND, not a rate: the Service load-balances across replicas, so a repeat lands "
                 + "on the pod that saw it roughly 1/N of the time, and the value moves when the "
                 + "HPA scales");
+        ShedRequests = _meter.CreateCounter<long>(ShedRequestsInstrument, unit: "requests",
+            description: "Requests shed because the pod's in-flight byte budget stayed full for "
+                + "the whole queue window, by reason. Distinct from docint.rejected_requests, "
+                + "which counts malformed requests (400): a shed request is well-formed and "
+                + "retryable");
     }
 
     public ActivitySource ActivitySource { get; } = new(SourceName);
@@ -54,6 +60,7 @@ public sealed class DocIntTelemetry : IDisposable
     public Histogram<double> FileDuration { get; }
     public Counter<long> RejectedRequests { get; }
     public Counter<long> DuplicateFiles { get; }
+    public Counter<long> ShedRequests { get; }
 
     public void Dispose()
     {

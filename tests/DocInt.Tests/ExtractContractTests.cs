@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using DocInt.Api.Admission;
 using DocInt.Api.Contracts;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -135,6 +136,57 @@ public class ExtractContractTests : IClassFixture<ContractTestFactory>
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseSetting("DocInt:MaxFileBytes", "20");
+            base.ConfigureWebHost(builder);
+        }
+    }
+
+    // A pod whose budget is already spoken for answers 503 with a Retry-After rather than
+    // buffering alongside the request that holds it and OOMKilling the whole pod. The budget here
+    // is two mebibytes and the queue timeout one second, so the second request cannot fit and does
+    // not wait long; in production both numbers are far larger and this path is rare.
+    [Fact]
+    public async Task A_saturated_pod_sheds_with_503_and_a_retry_after()
+    {
+        using var saturated = new SaturatedFactory();
+        var client = saturated.CreateClient();
+        var gate = saturated.Services.GetRequiredService<RequestAdmissionGate>();
+
+        // Hold the entire budget out-of-band, so the assertion does not depend on racing two
+        // real requests against each other.
+        using var held = await gate.AcquireAsync(2 * 1024 * 1024, CancellationToken.None);
+        Assert.NotNull(held);
+
+        using var form = Multipart.Form(("a.pdf", TestBytes.Pdf, "application/pdf"));
+        var response = await client.PostAsync("/v1/extract", form);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal("5", Assert.Single(response.Headers.GetValues("Retry-After")));
+    }
+
+    // Control: the same factory with the budget free answers 200, so it is saturation that sheds
+    // and not the filter rejecting everything.
+    [Fact]
+    public async Task The_same_pod_with_budget_free_answers_200()
+    {
+        using var saturated = new SaturatedFactory();
+        using var form = Multipart.Form(("a.pdf", TestBytes.Pdf, "application/pdf"));
+        var response = await saturated.CreateClient().PostAsync("/v1/extract", form);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    // The numbers here are constrained by the boot rule BudgetBytes >= MaxRequestBytes, and
+    // MaxRequestBytes is MaxRequestFileBytes + 1 MiB. So a 1 MiB budget cannot work at all: with
+    // MaxRequestFileBytes at 1024 the ceiling is 1 049 600, which is *above* 1 MiB, and the host
+    // refuses to start. 2 MiB clears it. Permits are whole mebibytes, so the budget is 2 permits
+    // and holding 2 MiB takes both, leaving a kilobyte-sized request with nothing to acquire.
+    private sealed class SaturatedFactory : ContractTestFactory
+    {
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            builder.UseSetting("DocInt:Admission:BudgetBytes", "2097152");
+            builder.UseSetting("DocInt:Admission:QueueTimeoutSeconds", "1");
+            builder.UseSetting("DocInt:MaxRequestFileBytes", "1024");
+            builder.UseSetting("DocInt:MaxFileBytes", "1024");
             base.ConfigureWebHost(builder);
         }
     }

@@ -1,6 +1,7 @@
 using System.Diagnostics.Metrics;
 using System.Net;
 using System.Text;
+using DocInt.Api.Admission;
 using DocInt.Api.Configuration;
 using DocInt.Api.Contracts;
 using DocInt.Api.Telemetry;
@@ -214,6 +215,42 @@ public class TelemetryTests : IClassFixture<ContractTestFactory>
         protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
         {
             builder.UseSetting($"{DuplicateTrackingOptions.SectionName}:Enabled", "false");
+            base.ConfigureWebHost(builder);
+        }
+    }
+
+    // A shed request is not a rejected one: docint.rejected_requests is the 400 vocabulary, and a
+    // 503 is a well-formed request the pod declined to start. Separate instruments, so a dashboard
+    // can tell "the caller sent nonsense" from "we ran out of room".
+    [Fact]
+    public async Task A_shed_request_counts_on_its_own_instrument_with_a_reason()
+    {
+        using var saturated = new ShedFactory();
+        var meterFactory = saturated.Services.GetRequiredService<IMeterFactory>();
+        using var collector = new MetricCollector<long>(
+            meterFactory, DocIntTelemetry.MeterName, DocIntTelemetry.ShedRequestsInstrument);
+        var gate = saturated.Services.GetRequiredService<RequestAdmissionGate>();
+        using var held = await gate.AcquireAsync(2 * 1024 * 1024, CancellationToken.None);
+
+        using var form = Multipart.Form(("a.pdf", TestBytes.Pdf, "application/pdf"));
+        var response = await saturated.CreateClient().PostAsync("/v1/extract", form);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+
+        var measurement = Assert.Single(collector.GetMeasurementSnapshot());
+        Assert.Equal(1, measurement.Value);
+        Assert.Equal(ShedReasons.QueueTimeout, measurement.Tags["reason"]);
+    }
+
+    // Same numbers as ExtractContractTests.SaturatedFactory, and for the same reason: BudgetBytes
+    // must clear MaxRequestFileBytes + 1 MiB or the host refuses to boot.
+    private sealed class ShedFactory : ContractTestFactory
+    {
+        protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
+        {
+            builder.UseSetting("DocInt:Admission:BudgetBytes", "2097152");
+            builder.UseSetting("DocInt:Admission:QueueTimeoutSeconds", "1");
+            builder.UseSetting("DocInt:MaxRequestFileBytes", "1024");
+            builder.UseSetting("DocInt:MaxFileBytes", "1024");
             base.ConfigureWebHost(builder);
         }
     }
