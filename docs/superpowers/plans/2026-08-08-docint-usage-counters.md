@@ -458,7 +458,6 @@ and in the constructor:
         // so a measurement that somehow exceeds it stays visible instead of being clamped.
         FileDuration = _meter.CreateHistogram<double>(FileDurationInstrument, unit: "s",
             description: "Wall-clock time to process one file, by kind and outcome",
-            tags: null,
             advice: new InstrumentAdvice<double>
             {
                 HistogramBucketBoundaries = [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 25, 50, 100, 250]
