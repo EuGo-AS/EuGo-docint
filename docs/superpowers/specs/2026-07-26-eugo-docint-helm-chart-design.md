@@ -128,8 +128,12 @@ service:
   falling back.
 - Port 8090 is baked into the image's `appsettings.json` (Kestrel endpoint) — the chart
   sets no port env var; `service.port` only controls the Service's exposed port.
-- Memory limit is deliberately generous: requests buffer fully in memory (≤50 MB/file,
-  `MaxParallelism` 4 by default).
+- Memory limit is sized for the admission budget, which is what bounds it: peak is roughly
+  baseline + `DocInt:Admission:BudgetBytes`. **Corrected 2026-08-08:** this bullet previously read
+  "≤50 MB/file, `MaxParallelism` 4 by default", implying a 200 MB per-pod bound. `MaxParallelism`
+  is per *request*, and until the admission gate landed nothing capped concurrent requests, so the
+  real peak was bytes-per-request × concurrent-requests. See
+  `2026-08-08-docint-admission-control-and-autoscaling-signal-design.md` §1.
 - No `imagePullSecrets` — AKS pulls from ACR via the kubelet's managed identity.
 
 ## 4. Deployment template
@@ -155,8 +159,9 @@ service:
   Deliberately **not** `medium: Memory`: a tmpfs `emptyDir` is charged to the container's
   memory limit, which §3 already sizes for `MaxFileBytes × MaxParallelism` buffered in
   memory — backing `/tmp` with it would bill that budget twice. No `sizeLimit` is set;
-  bounding node ephemeral storage under load (≤50 MB × 4 in flight per pod) is an open
-  follow-up, not a decision this fix made.
+  bounding node ephemeral storage under load is an open follow-up (the earlier "≤50 MB × 4 in
+  flight per pod" figure was wrong for the reason given in §3; OpenXML spill scales with
+  concurrent XLSX files, which the admission budget now bounds), not a decision this fix made.
   `readOnlyRootFilesystem: true` is retained — the mount is the narrow exception, not a
   relaxation of the constraint.
 - **Labels:** standard `app.kubernetes.io/name|instance|version|managed-by` via helpers;

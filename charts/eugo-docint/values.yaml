@@ -9,7 +9,22 @@ autoscaling:
   enabled: true
   minReplicas: 2
   maxReplicas: 6
+  # CPU alone never fires on the dominant path: PDF/DOCX/PPTX/HTML/image work is an Azure round
+  # trip, so the pod blocks on I/O while memory climbs. Kept anyway -- XLSX runs through the
+  # synchronous SpreadsheetEngine and is the one CPU-bound path. autoscaling/v2 takes the max of
+  # the two recommendations.
   targetCPUUtilizationPercentage: 70
+  # Absolute, not a percentage: Utilization measures against requests.memory (512Mi), which is a
+  # scheduling hint rather than the real ceiling, so a pod holding 900Mi would read as 176% and peg
+  # the HPA at maxReplicas immediately. 900Mi is baseline (~200Mi) plus about two thirds of the
+  # 1 GiB admission budget, so it fires before saturation with headroom under the 2Gi limit.
+  # It is a considered starting value, not a derived one -- see the design spec S7/S8 -- and empty
+  # omits the memory metric entirely, which is the documented back-out.
+  targetMemoryAverageValue: 900Mi
+  # Memory is sticky: the pod runs Server GC with no CPU limit, so heaps follow the node's core
+  # count and the working set decays slowly after a burst. This keeps the HPA from holding a high
+  # replica count on a reading that is already stale. Empty omits the behavior block.
+  scaleDownStabilizationSeconds: 600
 # Used only when autoscaling.enabled is false
 replicaCount: 2
 
@@ -50,8 +65,20 @@ docint:
   maxFilesPerRequest: ""
   # Per-file engine timeout, in seconds
   perFileTimeoutSeconds: ""
-  # Files processed concurrently — raise with the memory limit, not alone
+  # Files processed concurrently within one request -- raise with the memory limit, not alone
   maxParallelism: ""
+  # Cap on the SUM of file bytes in one request; over it is a request-level 400. Also sets what
+  # Kestrel accepts (this + 1 MiB), so lowering it lowers the pod's worst-case buffered payload.
+  maxRequestFileBytes: ""
+  # The per-pod ceiling on bytes held in flight, and what happens when it fills. budgetBytes must
+  # be at least maxRequestFileBytes + 1 MiB or the pod fails to boot -- deliberately, since a
+  # budget under the largest admissible request could never serve it.
+  admission:
+    # false admits every request immediately; the request-level limits above still apply
+    enabled: ""
+    budgetBytes: ""
+    queueTimeoutSeconds: ""
+    retryAfterSeconds: ""
 
 # Telemetry export. Empty endpoint omits all three vars below, which is the shipped behaviour:
 # traces and metrics are collected in-process and go nowhere. Set it to an OTLP collector to
@@ -74,8 +101,11 @@ resources:
     cpu: 250m
     memory: 512Mi
   # No CPU limit: throttling hurts latency more than it helps.
-  # Memory is generous on purpose: files are buffered fully in memory
-  # (<=50 MB/file, 4 in flight by default).
+  # Memory is sized for the admission budget, which is the only thing bounding it: peak is
+  # roughly baseline + DocInt:Admission:BudgetBytes (1 GiB shipped), because the reader holds
+  # every accepted file's bytes for the whole request. An earlier version of this comment said
+  # "<=50 MB/file, 4 in flight" -- that 4 is MaxParallelism, which is per request, and requests
+  # themselves were unbounded, so the real peak was bytes-per-request x concurrent-requests.
   limits:
     memory: 2Gi
 

@@ -113,3 +113,34 @@ jobs:
           grep -q 'OTEL_SERVICE_NAME' otel-on.yaml
           render > otel-off.yaml
           ! grep -q 'OTEL_' otel-off.yaml
+      # The CPU metric alone never fires on the Azure-bound path -- the pod is blocked on I/O while
+      # memory climbs -- so scale-out has to key on memory too. Both halves are asserted: the metric
+      # renders with the configured value, and blanking it removes only the memory metric, which is
+      # the documented back-out if GC retention pins the replica count.
+      - name: hpa keys on memory as well as cpu
+        run: |
+          render() { helm template ci charts/eugo-docint --set image.repository=r.example/eugo-docint "$@"; }
+          render > hpa-on.yaml
+          grep -q 'averageValue: 900Mi' hpa-on.yaml
+          grep -q 'stabilizationWindowSeconds: 600' hpa-on.yaml
+          render --set autoscaling.targetMemoryAverageValue="" > hpa-off.yaml
+          ! grep -q 'averageValue' hpa-off.yaml
+          grep -q 'averageUtilization: 70' hpa-off.yaml
+      # Same omit-when-empty contract as the other DocInt limits: 0 and false must reach the pod and
+      # fail ValidateOnStart, only an empty value means "unset". Two of the five are asserted because
+      # the is-set test is shared -- and `enabled` separately, because Helm's `with` treats false as
+      # empty exactly as it treats 0.
+      - name: admission limits reach the pod, unset ones do not
+        run: |
+          render() { helm template ci charts/eugo-docint --set image.repository=r.example/eugo-docint "$@"; }
+          render --set docint.admission.budgetBytes=0 > adm-zero.yaml
+          grep -A1 'DocInt__Admission__BudgetBytes' adm-zero.yaml > adm-matched.txt
+          grep -q 'value: "0"' adm-matched.txt
+          render --set docint.admission.enabled=false > adm-false.yaml
+          grep -A1 'DocInt__Admission__Enabled' adm-false.yaml > adm-enabled.txt
+          grep -q 'value: "false"' adm-enabled.txt
+          render --set docint.maxRequestFileBytes=0 > adm-total.yaml
+          grep -A1 'DocInt__MaxRequestFileBytes' adm-total.yaml > adm-total-matched.txt
+          grep -q 'value: "0"' adm-total-matched.txt
+          render > adm-default.yaml
+          ! grep -q 'DocInt__' adm-default.yaml

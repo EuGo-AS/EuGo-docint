@@ -74,12 +74,24 @@ spec:
                 "MaxFileBytes" .Values.docint.maxFileBytes
                 "MaxFilesPerRequest" .Values.docint.maxFilesPerRequest
                 "PerFileTimeoutSeconds" .Values.docint.perFileTimeoutSeconds
-                "MaxParallelism" .Values.docint.maxParallelism }}
+                "MaxParallelism" .Values.docint.maxParallelism
+                "MaxRequestFileBytes" .Values.docint.maxRequestFileBytes
+                "Admission__BudgetBytes" .Values.docint.admission.budgetBytes
+                "Admission__QueueTimeoutSeconds" .Values.docint.admission.queueTimeoutSeconds
+                "Admission__RetryAfterSeconds" .Values.docint.admission.retryAfterSeconds }}
           {{- range $name, $value := $limits }}
           {{- if not (kindIs "invalid" $value) }}
           {{- if ne (toString $value) "" }}
           {{- $env = append $env (dict "name" (printf "DocInt__%s" $name) "value" (printf "%d" (int64 $value))) }}
           {{- end }}
+          {{- end }}
+          {{- end }}
+          {{- /* Not `with`: false is "empty" to Helm, so --set docint.admission.enabled=false
+                 would omit the var and leave the gate silently ON -- the opposite of what the
+                 operator asked for. Only nil and "" mean unset. */}}
+          {{- if not (kindIs "invalid" .Values.docint.admission.enabled) }}
+          {{- if ne (toString .Values.docint.admission.enabled) "" }}
+          {{- $env = append $env (dict "name" "DocInt__Admission__Enabled" "value" (toString .Values.docint.admission.enabled)) }}
           {{- end }}
           {{- end }}
           {{- /* OTEL_SERVICE_NAME is derived rather than user-supplied: without it every release
