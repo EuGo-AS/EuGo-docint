@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Options;
+
 namespace DocInt.Api.Configuration;
 
 public sealed class DocIntOptions
@@ -128,6 +130,37 @@ public sealed class DuplicateTrackingOptions
     public int Capacity { get; set; }
 }
 
+/// <summary>
+/// The per-pod ceiling on bytes held in flight, and what happens when it is reached. Nested under
+/// DocInt alongside the other knobs (DocInt__Admission__Enabled from the environment).
+/// </summary>
+/// <remarks>
+/// This is the only thing bounding pod memory. MultipartExtractRequestReader holds every accepted
+/// file's byte[] for the whole request and nothing caps concurrent requests, so without it peak
+/// memory is bytes-per-request x concurrent-requests against the pod's limit. With it, peak is
+/// baseline + BudgetBytes — which is also what makes memory worth autoscaling on.
+/// </remarks>
+public sealed class AdmissionOptions
+{
+    public const string SectionName = "DocInt:Admission";
+
+    /// <summary>
+    /// The off switch, carrying its default for the same reason the other three do: a bool has no
+    /// "absent", and defaulting to false would turn a typo into an unprotected pod. False admits
+    /// every request immediately and emits no measurements — it disables admission only, never the
+    /// request limits in DocIntOptions.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    // No initializers below, matching the classes above: appsettings.json owns the shipped values.
+    /// <summary>Bytes a pod will hold in flight at once, across all concurrent requests.</summary>
+    public long BudgetBytes { get; set; }
+    /// <summary>How long a request waits for budget before it is shed with a 503.</summary>
+    public int QueueTimeoutSeconds { get; set; }
+    /// <summary>Seconds advertised in the Retry-After header on that 503.</summary>
+    public int RetryAfterSeconds { get; set; }
+}
+
 public static class OptionsExtensions
 {
     public static WebApplicationBuilder AddDocIntOptions(this WebApplicationBuilder builder)
@@ -166,6 +199,17 @@ public static class OptionsExtensions
             .Validate(o => o.MaxRequestFileBytes >= o.MaxFileBytes,
                 $"{DocIntOptions.SectionName}:MaxRequestFileBytes must be at least MaxFileBytes, "
                 + "or a single maximum-size file can never be accepted")
+            .ValidateOnStart();
+        builder.Services.AddOptions<AdmissionOptions>()
+            .Bind(builder.Configuration.GetSection(AdmissionOptions.SectionName))
+            .Validate(o => o.BudgetBytes > 0 && o.QueueTimeoutSeconds > 0 && o.RetryAfterSeconds > 0,
+                $"{AdmissionOptions.SectionName} budget and timings must be positive")
+            // Kestrel refuses anything above MaxRequestBytes, so a budget at least that large makes
+            // an over-budget request unreachable rather than a case to handle. Without this the
+            // limiter would be asked for more permits than it owns and would throw on a live request.
+            .Validate<IOptions<DocIntOptions>>((o, docint) => o.BudgetBytes >= docint.Value.MaxRequestBytes,
+                $"{AdmissionOptions.SectionName}:BudgetBytes must be at least "
+                + "DocInt:MaxRequestBytes, or a legal request could never be admitted")
             .ValidateOnStart();
         builder.Services.AddOptions<DocumentIntelligenceOptions>()
             .Bind(builder.Configuration.GetSection(DocumentIntelligenceOptions.SectionName))

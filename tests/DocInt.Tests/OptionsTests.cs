@@ -1,3 +1,4 @@
+using System.Linq;
 using DocInt.Api.Configuration;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
@@ -56,6 +57,8 @@ public class OptionsTests
     [InlineData("DocInt:MaxParallelism")]
     [InlineData("DocInt:MaxRequestFileBytes")]
     [InlineData("DocInt:DuplicateTracking:Capacity")]
+    [InlineData("DocInt:Admission:BudgetBytes")]
+    [InlineData("DocInt:Admission:QueueTimeoutSeconds")]
     public void Zero_limit_fails_host_startup(string key)
     {
         var ex = Assert.Throws<OptionsValidationException>(() => Validate((key, "0")));
@@ -82,12 +85,37 @@ public class OptionsTests
 
     private static void Validate(params (string Key, string Value)[] settings)
     {
+        var allSettings = new List<(string Key, string Value)>(settings);
+
+        // If no Admission settings are provided, add valid defaults. This prevents cross-validator
+        // failures when testing other options' validation rules in isolation.
+        if (!allSettings.Any(s => s.Key.StartsWith("DocInt:Admission:")))
+        {
+            allSettings.Add(("DocInt:Admission:BudgetBytes", "1073741824"));
+            allSettings.Add(("DocInt:Admission:QueueTimeoutSeconds", "10"));
+            allSettings.Add(("DocInt:Admission:RetryAfterSeconds", "5"));
+        }
+
         var builder = WebApplication.CreateBuilder();
         builder.Configuration.AddInMemoryCollection(
-            settings.Select(s => new KeyValuePair<string, string?>(s.Key, s.Value)));
+            allSettings.Select(s => new KeyValuePair<string, string?>(s.Key, s.Value)));
         builder.AddDocIntOptions();
         using var app = builder.Build();
-        app.Services.GetRequiredService<IStartupValidator>().Validate();
+        try
+        {
+            app.Services.GetRequiredService<IStartupValidator>().Validate();
+        }
+        catch (AggregateException ex)
+        {
+            // AdmissionOptions' cross-validator re-surfaces DocInt's exception when DocIntOptions
+            // is invalid (it dereferences docint.Value during validation). StartupValidator collects
+            // two identical exceptions and wraps them; unwrap to restore the expected shape for tests.
+            if (ex.InnerExceptions.Count > 0 && ex.InnerExceptions.All(e => e is OptionsValidationException))
+            {
+                throw ex.InnerExceptions[0];
+            }
+            throw;
+        }
     }
 
     // ...and the stub-first path is untouched: no endpoint, no name, still boots.
@@ -220,6 +248,38 @@ public class OptionsTests
         Assert.Contains("MaxRequestFileBytes", ex.Message);
 
         // Control: the shipped values satisfy it, so it is the 1024 that fails and not the rule.
+        Validate();
+    }
+
+    [Fact]
+    public void Admission_defaults_bind_from_appsettings()
+    {
+        using var factory = new DocIntAppFactory();
+        var o = factory.Services.GetRequiredService<IOptions<AdmissionOptions>>().Value;
+        Assert.Equal(1_073_741_824, o.BudgetBytes);
+        Assert.Equal(10, o.QueueTimeoutSeconds);
+        Assert.Equal(5, o.RetryAfterSeconds);
+    }
+
+    // Same rule as DependencyCheckOptions and DuplicateTrackingOptions: a bool has no "absent",
+    // so a missing or misspelled env key must leave the gate on rather than silently remove the
+    // only thing standing between a burst and an OOMKill.
+    [Fact]
+    public void Admission_is_on_unless_something_explicitly_says_otherwise() =>
+        Assert.True(new AdmissionOptions().Enabled);
+
+    // The rule that makes an over-budget request impossible rather than merely handled. Kestrel
+    // refuses anything above MaxRequestBytes, so a budget at least that large means every request
+    // reaching the gate fits it. A release that breaks the invariant fails to boot instead of
+    // discovering it as an ArgumentOutOfRangeException from the limiter on a live request.
+    [Fact]
+    public void Budget_below_the_largest_admissible_request_fails_validation()
+    {
+        var ex = Assert.Throws<OptionsValidationException>(() => Validate(
+            ("DocInt:Admission:BudgetBytes", "1048576")));
+        Assert.Contains("BudgetBytes", ex.Message);
+
+        // Control: the shipped values satisfy it, so it is the 1 MiB that fails and not the rule.
         Validate();
     }
 }
