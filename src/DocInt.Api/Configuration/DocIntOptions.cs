@@ -12,8 +12,17 @@ public sealed class DocIntOptions
     public int PerFileTimeoutSeconds { get; set; }
     public int MaxParallelism { get; set; }
 
-    /// <summary>Request-level cap: worst-case accepted payload plus multipart overhead.</summary>
-    public long MaxRequestBytes => MaxFileBytes * MaxFilesPerRequest + 1_048_576;
+    /// <summary>
+    /// Cap on the sum of accepted file bytes in one request. Distinct from MaxFileBytes x
+    /// MaxFilesPerRequest, which is the pathological product of the two (32 x 50 MiB = 1.56 GiB)
+    /// and was what MaxRequestBytes used to be — a body 78% the size of the container's entire
+    /// memory limit, which Kestrel was configured to accept. Both per-file caps are unchanged;
+    /// this bounds their combination.
+    /// </summary>
+    public long MaxRequestFileBytes { get; set; }
+
+    /// <summary>Request-level cap: accepted file bytes plus multipart framing and the hints part.</summary>
+    public long MaxRequestBytes => MaxRequestFileBytes + 1_048_576;
 }
 
 public sealed class DocumentIntelligenceOptions
@@ -150,8 +159,13 @@ public static class OptionsExtensions
         builder.Services.AddOptions<DocIntOptions>()
             .Bind(builder.Configuration.GetSection(DocIntOptions.SectionName))
             .Validate(o => o.MaxFileBytes > 0 && o.MaxFilesPerRequest > 0
-                        && o.PerFileTimeoutSeconds > 0 && o.MaxParallelism > 0,
+                        && o.PerFileTimeoutSeconds > 0 && o.MaxParallelism > 0
+                        && o.MaxRequestFileBytes > 0,
                 "DocInt options must all be positive")
+            // A request-total under the per-file cap makes one maximum-size file inadmissible.
+            .Validate(o => o.MaxRequestFileBytes >= o.MaxFileBytes,
+                $"{DocIntOptions.SectionName}:MaxRequestFileBytes must be at least MaxFileBytes, "
+                + "or a single maximum-size file can never be accepted")
             .ValidateOnStart();
         builder.Services.AddOptions<DocumentIntelligenceOptions>()
             .Bind(builder.Configuration.GetSection(DocumentIntelligenceOptions.SectionName))

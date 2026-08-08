@@ -18,20 +18,24 @@ public static class TestOptions
         long maxFileBytes = 1_048_576,
         int maxFilesPerRequest = 8,
         int perFileTimeoutSeconds = 30,
-        int maxParallelism = 2) => new()
+        int maxParallelism = 2,
+        long maxRequestFileBytes = 4_194_304) => new()
         {
             MaxFileBytes = maxFileBytes,
             MaxFilesPerRequest = maxFilesPerRequest,
             PerFileTimeoutSeconds = perFileTimeoutSeconds,
-            MaxParallelism = maxParallelism
+            MaxParallelism = maxParallelism,
+            MaxRequestFileBytes = maxRequestFileBytes
         };
 
     public static IOptions<DocIntOptions> Wrapped(
         long maxFileBytes = 1_048_576,
         int maxFilesPerRequest = 8,
         int perFileTimeoutSeconds = 30,
-        int maxParallelism = 2) =>
-        Options.Create(DocInt(maxFileBytes, maxFilesPerRequest, perFileTimeoutSeconds, maxParallelism));
+        int maxParallelism = 2,
+        long maxRequestFileBytes = 4_194_304) =>
+        Options.Create(DocInt(maxFileBytes, maxFilesPerRequest, perFileTimeoutSeconds,
+            maxParallelism, maxRequestFileBytes));
 }
 
 public static class TestBytes

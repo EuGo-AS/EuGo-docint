@@ -19,7 +19,8 @@ public class OptionsTests
         Assert.Equal(32, o.MaxFilesPerRequest);
         Assert.Equal(100, o.PerFileTimeoutSeconds);
         Assert.Equal(4, o.MaxParallelism);
-        Assert.Equal(52_428_800L * 32 + 1_048_576, o.MaxRequestBytes);
+        Assert.Equal(209_715_200, o.MaxRequestFileBytes);
+        Assert.Equal(209_715_200L + 1_048_576, o.MaxRequestBytes);
         Assert.Equal("model-eugo-docint-vision",
             factory.Services.GetRequiredService<IOptions<AzureOpenAIOptions>>().Value.DeploymentNameVision);
     }
@@ -53,6 +54,7 @@ public class OptionsTests
     [InlineData("DocInt:MaxFilesPerRequest")]
     [InlineData("DocInt:PerFileTimeoutSeconds")]
     [InlineData("DocInt:MaxParallelism")]
+    [InlineData("DocInt:MaxRequestFileBytes")]
     [InlineData("DocInt:DuplicateTracking:Capacity")]
     public void Zero_limit_fails_host_startup(string key)
     {
@@ -206,4 +208,18 @@ public class OptionsTests
     [Fact]
     public void Duplicate_tracking_is_on_unless_something_explicitly_says_otherwise() =>
         Assert.True(new DuplicateTrackingOptions().Enabled);
+
+    // A request-total cap below the per-file cap makes a single maximum-size file inadmissible:
+    // the file passes its own check and then the request fails, which reads as a server bug from
+    // the caller's side. Rejected at boot instead.
+    [Fact]
+    public void Request_total_below_the_per_file_cap_fails_validation()
+    {
+        var ex = Assert.Throws<OptionsValidationException>(() => Validate(
+            ("DocInt:MaxRequestFileBytes", "1024")));
+        Assert.Contains("MaxRequestFileBytes", ex.Message);
+
+        // Control: the shipped values satisfy it, so it is the 1024 that fails and not the rule.
+        Validate();
+    }
 }
