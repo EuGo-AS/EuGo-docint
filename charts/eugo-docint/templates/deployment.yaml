@@ -122,6 +122,7 @@ spec:
         # from a MemoryStream -- without this, every XLSX request fails with
         # engine_error "Read-only file system : '/tmp/'". Deliberately disk-backed: a
         # medium: Memory emptyDir counts against the container memory limit, which is already
-        # sized for MaxFileBytes x MaxParallelism buffered in memory.
+        # sized for the admission budget (peak ~= baseline + DocInt:Admission:BudgetBytes) --
+        # backing /tmp with it would bill that budget twice.
         - name: tmp
           emptyDir: {}

@@ -157,8 +157,9 @@ service:
   failed** with `engine_error "Read-only file system : '/tmp/'"` — AKS included. Observed
   and fixed 2026-08-06 (chart 0.1.2).
   Deliberately **not** `medium: Memory`: a tmpfs `emptyDir` is charged to the container's
-  memory limit, which §3 already sizes for `MaxFileBytes × MaxParallelism` buffered in
-  memory — backing `/tmp` with it would bill that budget twice. No `sizeLimit` is set;
+  memory limit, which §3 already sizes for the admission budget (peak ≈ baseline +
+  `DocInt:Admission:BudgetBytes`) — backing `/tmp` with it would bill that budget twice. No
+  `sizeLimit` is set;
   bounding node ephemeral storage under load is an open follow-up (the earlier "≤50 MB × 4 in
   flight per pod" figure was wrong for the reason given in §3; OpenXML spill scales with
   concurrent XLSX files, which the admission budget now bounds), not a decision this fix made.
@@ -169,12 +170,34 @@ service:
 
 ## 5. HPA
 
-`autoscaling/v2`, CPU utilization target 70 %, min 2 / max 6. Memory is intentionally
-**not** a scaling metric: the .NET server GC retains heap after bursts (a memory-based
-HPA ratchets up and never scales down), per-pod memory is bounded by admission caps
-rather than demand, and scale-out cannot relieve pressure on an already-loaded pod. The
-2 Gi limit is the memory guardrail. CPU is an imperfect signal for an I/O-bound service —
-acceptable; min 2 covers availability, and target/max are values-tunable.
+`autoscaling/v2`, min 2 / max 6, scaling on **two** Resource metrics: CPU utilization at 70 %
+and memory as an absolute `AverageValue` of 900Mi. `autoscaling/v2` takes the maximum of the
+per-metric recommendations.
+
+**Amended 2026-08-08.** This section previously read "Memory is intentionally **not** a scaling
+metric" and gave three reasons. One of them was simply false: it claimed "per-pod memory is
+bounded by admission caps rather than demand", but no admission cap existed — nothing limited
+concurrent requests, and the reader holds every accepted file's bytes for the whole request, so
+peak memory was `bytes-per-request × concurrent-requests`. That is now true for the first time:
+`DocInt:Admission:BudgetBytes` bounds it, and peak is roughly baseline + budget. Memory only
+became worth scaling on once it was bounded, which is why the gate and the metric landed together.
+
+The other two reasons still stand and are handled rather than dismissed:
+
+- **Server GC retains heap after bursts, so a memory HPA ratchets up and scales down late.** Real,
+  and knowingly accepted. `AverageValue` is used instead of `Utilization` because the latter
+  measures against `requests.memory` (512Mi), a scheduling hint rather than the real ceiling — a
+  pod holding 900Mi would read as 176 % and peg at `maxReplicas` immediately.
+  `behavior.scaleDown.stabilizationWindowSeconds: 600` is the guard, and setting
+  `autoscaling.targetMemoryAverageValue` to `""` removes the memory metric entirely as a
+  documented back-out. Constraining the GC is the named escalation if pinning shows up as cost.
+- **Scale-out cannot relieve an already-loaded pod.** Correct — which is why backpressure, not
+  autoscaling, is the defence against OOM. The admission gate sheds with 503 + Retry-After; the
+  HPA only answers sustained load.
+
+The 900Mi threshold is a considered starting value, not a derived one, and cannot be validated
+without real pod metrics. See `2026-08-08-docint-admission-control-and-autoscaling-signal-design.md`
+§7 and §8.
 
 ## 6. Versioning: chart ↔ image
 
