@@ -40,6 +40,13 @@ public sealed class DuplicateFileTracker
     /// </summary>
     public DuplicateCounts Record(IReadOnlyList<ulong> hashes)
     {
+        // Defence in depth: a disabled tracker must not grow its cache even if a caller forgets
+        // to gate the call. This is only half the documented contract, though — it stops the
+        // mutation, not the measurement. An unconditional caller would still get (0, 0) back and
+        // record it as a real observation, creating a scope=pod series on a pod where tracking
+        // is meant to be invisible. The call site still has to check Enabled before calling
+        // Record at all; Task 6 does that and tests it. Do not delete either gate.
+        if (!Enabled) return new DuplicateCounts(0, 0);
         if (hashes.Count == 0) return new DuplicateCounts(0, 0);
 
         var distinct = new HashSet<ulong>(hashes);

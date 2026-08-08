@@ -61,4 +61,19 @@ public class DuplicateFileTrackerTests
         Assert.False(new DuplicateFileTracker(
             Options.Create(new DuplicateTrackingOptions { Capacity = 8, Enabled = false })).Enabled);
     }
+
+    // A disabled tracker must not populate its cache even if a caller invokes Record anyway.
+    // The first call alone would pass against a broken implementation that returns zeros but
+    // still mutates the cache; the second call, with the same hash the first call "recorded", is
+    // what actually proves nothing was cached — if the first call had touched the cache, this one
+    // would come back (0, 1) instead.
+    [Fact]
+    public void Disabled_tracker_reports_nothing_and_does_not_populate_its_cache()
+    {
+        var tracker = new DuplicateFileTracker(
+            Options.Create(new DuplicateTrackingOptions { Capacity = 8, Enabled = false }));
+
+        Assert.Equal(new DuplicateCounts(0, 0), tracker.Record([9, 9]));
+        Assert.Equal(new DuplicateCounts(0, 0), tracker.Record([9]));
+    }
 }
