@@ -24,15 +24,15 @@ public sealed class MultipartExtractRequestReader(IOptions<DocIntOptions> option
     public async Task<IReadOnlyList<FileItem>> ReadAsync(HttpRequest request, CancellationToken ct)
     {
         if (request.ContentLength is { } declared && declared > _options.MaxRequestBytes)
-            throw new BadExtractRequestException(
+            throw new BadExtractRequestException(RejectReasons.BodyTooLarge,
                 $"request body of {declared} bytes exceeds the limit of {_options.MaxRequestBytes} bytes");
 
         if (!MediaTypeHeaderValue.TryParse(request.ContentType, out var mediaType)
             || !"multipart/form-data".Equals(mediaType.MediaType.Value, StringComparison.OrdinalIgnoreCase))
-            throw new BadExtractRequestException("request must be multipart/form-data");
+            throw new BadExtractRequestException(RejectReasons.NotMultipart, "request must be multipart/form-data");
         var boundary = HeaderUtilities.RemoveQuotes(mediaType.Boundary).Value;
         if (string.IsNullOrWhiteSpace(boundary))
-            throw new BadExtractRequestException("multipart boundary missing");
+            throw new BadExtractRequestException(RejectReasons.BoundaryMissing, "multipart boundary missing");
 
         var files = new List<FileItem>();
         string? hintsJson = null;
@@ -48,7 +48,7 @@ public sealed class MultipartExtractRequestReader(IOptions<DocIntOptions> option
                 if (disposition.IsFileDisposition() && partName == "files")
                 {
                     if (files.Count >= _options.MaxFilesPerRequest)
-                        throw new BadExtractRequestException(
+                        throw new BadExtractRequestException(RejectReasons.TooManyFiles,
                             $"more than {_options.MaxFilesPerRequest} files in one request");
                     var fileName = HeaderUtilities.RemoveQuotes(disposition.FileName).Value;
                     if (string.IsNullOrEmpty(fileName)) fileName = $"file-{files.Count}";
@@ -85,7 +85,7 @@ public sealed class MultipartExtractRequestReader(IOptions<DocIntOptions> option
                 {
                     var (bytes, _, tooLarge) = await BufferAsync(section.Body, MaxHintsBytes, ct);
                     if (tooLarge)
-                        throw new BadExtractRequestException(
+                        throw new BadExtractRequestException(RejectReasons.HintsTooLarge,
                             $"hints part exceeds the limit of {MaxHintsBytes} bytes");
                     hintsJson = Encoding.UTF8.GetString(bytes);
                 }
@@ -95,11 +95,11 @@ public sealed class MultipartExtractRequestReader(IOptions<DocIntOptions> option
         {
             // Multipart in content-type but truncated/corrupt in framing: MultipartReader's
             // boundary search hit an unexpected end of stream. Bad input, not a server bug.
-            throw new BadExtractRequestException("malformed multipart body");
+            throw new BadExtractRequestException(RejectReasons.MalformedBody, "malformed multipart body");
         }
 
         if (files.Count == 0)
-            throw new BadExtractRequestException("request contains no file parts named 'files'");
+            throw new BadExtractRequestException(RejectReasons.NoFiles, "request contains no file parts named 'files'");
         if (hintsJson is not null)
             ApplyHints(files, HintsParser.Parse(hintsJson));
         return files;

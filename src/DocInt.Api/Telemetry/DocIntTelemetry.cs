@@ -11,6 +11,7 @@ public sealed class DocIntTelemetry : IDisposable
     public const string FilesProcessedInstrument = "docint.files_processed";
     public const string BytesProcessedInstrument = "docint.bytes_processed";
     public const string FileDurationInstrument = "docint.file_duration";
+    public const string RejectedRequestsInstrument = "docint.rejected_requests";
 
     private readonly Meter _meter;
 
@@ -33,6 +34,10 @@ public sealed class DocIntTelemetry : IDisposable
             {
                 HistogramBucketBoundaries = [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 25, 50, 100, 250]
             });
+        RejectedRequests = _meter.CreateCounter<long>(RejectedRequestsInstrument, unit: "requests",
+            description: "Requests rejected as malformed (400), by reason. Not a complete count of "
+                + "rejections: a body over the cap with no Content-Length is terminated by Kestrel "
+                + "before this code runs");
     }
 
     public ActivitySource ActivitySource { get; } = new(SourceName);
@@ -41,6 +46,7 @@ public sealed class DocIntTelemetry : IDisposable
     public Counter<long> FilesProcessed { get; }
     public Counter<long> BytesProcessed { get; }
     public Histogram<double> FileDuration { get; }
+    public Counter<long> RejectedRequests { get; }
 
     public void Dispose()
     {

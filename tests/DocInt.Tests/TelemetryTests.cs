@@ -1,6 +1,9 @@
 using System.Diagnostics.Metrics;
+using System.Net;
+using System.Text;
 using DocInt.Api.Contracts;
 using DocInt.Api.Telemetry;
+using DocInt.Api.Validation;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 
@@ -103,5 +106,38 @@ public class TelemetryTests : IClassFixture<ContractTestFactory>
             Assert.NotNull(m.Tags["kind"]);
             Assert.NotNull(m.Tags["outcome"]);
         });
+    }
+
+    // The three shapes are built here rather than inline so the Theory stays readable. Note the
+    // hints_invalid case posts a VALID file part alongside the bad hints: ReadAsync checks
+    // files.Count == 0 before it ever calls HintsParser, so a request carrying only bad hints is
+    // rejected as no_files and this test would assert the wrong reason.
+    private static HttpContent BadRequest(string reason) => reason switch
+    {
+        RejectReasons.NotMultipart => new StringContent("{}", Encoding.UTF8, "application/json"),
+        RejectReasons.TooManyFiles => Multipart.Form(Enumerable.Range(0, 33)
+            .Select(i => ($"f{i}.pdf", TestBytes.Pdf, "application/pdf")).ToArray()),
+        RejectReasons.HintsInvalid => Multipart.Form(("a.pdf", TestBytes.Pdf, "application/pdf"))
+            .WithHints("{not json"),
+        _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, "no shape for this reason")
+    };
+
+    [Theory]
+    [InlineData(RejectReasons.NotMultipart)]
+    [InlineData(RejectReasons.TooManyFiles)]
+    [InlineData(RejectReasons.HintsInvalid)]
+    public async Task Rejected_requests_counts_the_400_path_by_reason(string reason)
+    {
+        var meterFactory = _factory.Services.GetRequiredService<IMeterFactory>();
+        using var collector = new MetricCollector<long>(
+            meterFactory, DocIntTelemetry.MeterName, DocIntTelemetry.RejectedRequestsInstrument);
+
+        using var content = BadRequest(reason);
+        var response = await _factory.CreateClient().PostAsync("/v1/extract", content);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var measurements = collector.GetMeasurementSnapshot();
+        Assert.Equal(1, measurements.Sum(m => m.Value));
+        Assert.All(measurements, m => Assert.Equal(reason, m.Tags["reason"]));
     }
 }
