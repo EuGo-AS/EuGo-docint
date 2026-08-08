@@ -1,4 +1,3 @@
-using System.Linq;
 using DocInt.Api.Configuration;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
@@ -85,37 +84,12 @@ public class OptionsTests
 
     private static void Validate(params (string Key, string Value)[] settings)
     {
-        var allSettings = new List<(string Key, string Value)>(settings);
-
-        // If no Admission settings are provided, add valid defaults. This prevents cross-validator
-        // failures when testing other options' validation rules in isolation.
-        if (!allSettings.Any(s => s.Key.StartsWith("DocInt:Admission:")))
-        {
-            allSettings.Add(("DocInt:Admission:BudgetBytes", "1073741824"));
-            allSettings.Add(("DocInt:Admission:QueueTimeoutSeconds", "10"));
-            allSettings.Add(("DocInt:Admission:RetryAfterSeconds", "5"));
-        }
-
         var builder = WebApplication.CreateBuilder();
         builder.Configuration.AddInMemoryCollection(
-            allSettings.Select(s => new KeyValuePair<string, string?>(s.Key, s.Value)));
+            settings.Select(s => new KeyValuePair<string, string?>(s.Key, s.Value)));
         builder.AddDocIntOptions();
         using var app = builder.Build();
-        try
-        {
-            app.Services.GetRequiredService<IStartupValidator>().Validate();
-        }
-        catch (AggregateException ex)
-        {
-            // AdmissionOptions' cross-validator re-surfaces DocInt's exception when DocIntOptions
-            // is invalid (it dereferences docint.Value during validation). StartupValidator collects
-            // two identical exceptions and wraps them; unwrap to restore the expected shape for tests.
-            if (ex.InnerExceptions.Count > 0 && ex.InnerExceptions.All(e => e is OptionsValidationException))
-            {
-                throw ex.InnerExceptions[0];
-            }
-            throw;
-        }
+        app.Services.GetRequiredService<IStartupValidator>().Validate();
     }
 
     // ...and the stub-first path is untouched: no endpoint, no name, still boots.

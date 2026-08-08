@@ -207,7 +207,19 @@ public static class OptionsExtensions
             // Kestrel refuses anything above MaxRequestBytes, so a budget at least that large makes
             // an over-budget request unreachable rather than a case to handle. Without this the
             // limiter would be asked for more permits than it owns and would throw on a live request.
-            .Validate<IOptions<DocIntOptions>>((o, docint) => o.BudgetBytes >= docint.Value.MaxRequestBytes,
+            .Validate<IOptions<DocIntOptions>>((o, docint) =>
+            {
+                try
+                {
+                    return o.BudgetBytes >= docint.Value.MaxRequestBytes;
+                }
+                catch (OptionsValidationException)
+                {
+                    // DocIntOptions' own ValidateOnStart will report its failure; swallowing here
+                    // keeps a broken deployment's log to one clean exception instead of two duplicates.
+                    return true;
+                }
+            },
                 $"{AdmissionOptions.SectionName}:BudgetBytes must be at least "
                 + "DocInt:MaxRequestBytes, or a legal request could never be admitted")
             .ValidateOnStart();
