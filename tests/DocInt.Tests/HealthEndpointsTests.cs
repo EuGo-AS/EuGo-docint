@@ -41,6 +41,7 @@ public class HealthEndpointsTests : IClassFixture<DocIntAppFactory>
     {
         var response = await _client.GetAsync("/");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("text/plain", response.Content.Headers.ContentType?.MediaType);
         Assert.Equal("EuGo-docint", await response.Content.ReadAsStringAsync());
     }
 
