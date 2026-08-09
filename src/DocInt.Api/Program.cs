@@ -106,8 +106,12 @@ try
     {
         service = "EuGo-docint",
         version,
-        endpoints = new[] { "/v1/extract", "/healthz", "/alive", "/info" }
+        endpoints = new[] { "/v1/extract", "/healthz", "/alive", "/info", "/" }
     }));
+
+    // A bare service banner, so hitting the root in a browser or a curl smoke test names the
+    // pod instead of 404ing. Deliberately just the name — /info is where metadata belongs.
+    app.MapGet("/", () => Results.Text("EuGo-docint"));
 
     app.Run();
 }

@@ -37,6 +37,14 @@ public class HealthEndpointsTests : IClassFixture<DocIntAppFactory>
     }
 
     [Fact]
+    public async Task Root_returns_service_name()
+    {
+        var response = await _client.GetAsync("/");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("EuGo-docint", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task Info_returns_service_metadata()
     {
         var response = await _client.GetAsync("/info");
