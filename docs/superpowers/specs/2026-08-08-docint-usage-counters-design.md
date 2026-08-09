@@ -20,8 +20,18 @@ document adds five more on the same meter and one first-class export path in the
 - **No metrics backend.** `../EuGo-infra` provisions no collector, no Prometheus, no
   Application Insights. This spec adds the chart value that would target one; standing one up
   is EuGo-infra's work and is not in scope here.
-- **No Prometheus exporter and no `/metrics` route.** The OTLP path already exists in
-  ServiceDefaults; a second export mechanism is not justified by anything today.
+- ~~**No Prometheus exporter and no `/metrics` route.** The OTLP path already exists in
+  ServiceDefaults; a second export mechanism is not justified by anything today.~~
+  **Amended 2026-08-09 — superseded.** The premise held only while a collector was expected soon.
+  It was not stood up, so "the OTLP path already exists" turned out to mean the instruments below
+  are unreadable in every environment, which is the one outcome this spec exists to prevent. A
+  Prometheus scrape route (`GET /metrics`, `DocInt:Metrics:*`, on by default) now ships alongside
+  the OTLP exporter as a second metric reader — additive, no change to any instrument or tag, and
+  removable in one commit if a collector arrives. The exporter is
+  `OpenTelemetry.Exporter.Prometheus.AspNetCore`, knowingly a prerelease package: it has never
+  published a stable version and its own README prefers OTLP for production, which is why OTLP
+  remains the primary path rather than being replaced. The chart's `prometheus.io/*` pod
+  annotations are opt-in and inert until infra runs a scraper.
 - **No reachability metric.** `2026-08-07-dependency-health-checks-design.md` listed an OTel
   metric for dependency reachability as a deliberate later step. It stays deferred; `/healthz`
   remains the way to see that.

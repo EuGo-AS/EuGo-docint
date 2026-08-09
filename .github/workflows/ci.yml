@@ -122,6 +122,22 @@ jobs:
           if grep -q 'OTEL_' otel-off.yaml; then
             echo "an OTEL_ var rendered with no endpoint configured"; exit 1
           fi
+      # The scrape annotations are opt-in and must stay that way: nothing in the cluster reads
+      # prometheus.io/* today, and a pod that advertises a route it does not serve is worse than
+      # one that advertises nothing. Both halves again -- on renders all three keys with the path
+      # tracking metrics.path, off renders none.
+      - name: scrape annotations render only when asked for
+        run: |
+          render() { helm template ci charts/eugo-docint --set image.repository=r.example/eugo-docint "$@"; }
+          render --set metrics.scrapeAnnotations=true --set metrics.path=/internal/metrics > scrape-on.yaml
+          grep -q 'prometheus.io/scrape: "true"' scrape-on.yaml
+          grep -q 'prometheus.io/port: "8090"' scrape-on.yaml
+          grep -q 'prometheus.io/path: "/internal/metrics"' scrape-on.yaml
+          render > scrape-off.yaml
+          # Explicit `if`, not `! grep` -- see the note in the zero-limits step above.
+          if grep -q 'prometheus.io/' scrape-off.yaml; then
+            echo "a scrape annotation rendered without metrics.scrapeAnnotations"; exit 1
+          fi
       # The CPU metric alone never fires on the Azure-bound path -- the pod is blocked on I/O while
       # memory climbs -- so scale-out has to key on memory too. Both halves are asserted: the metric
       # renders with the configured value, and blanking it removes only the memory metric, which is

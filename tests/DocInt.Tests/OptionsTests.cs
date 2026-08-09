@@ -257,4 +257,35 @@ public class OptionsTests
         // Control: the shipped values satisfy it, so it is the 1 MiB that fails and not the rule.
         Validate();
     }
+
+    [Fact]
+    public void Metrics_defaults_bind_from_appsettings()
+    {
+        using var factory = new DocIntAppFactory();
+        var o = factory.Services.GetRequiredService<IOptions<MetricsOptions>>().Value;
+        Assert.True(o.Enabled);
+        Assert.Equal("/metrics", o.Path);
+    }
+
+    // An unrooted path is the one way to configure this into a route nobody can reach: ASP.NET
+    // Core happily maps "metrics", and the scrape then 404s with the endpoint reporting itself as
+    // enabled. Boot-time rejection, so it cannot be discovered from a dashboard with no data.
+    [Theory]
+    [InlineData("metrics")]
+    [InlineData("")]
+    [InlineData("/")]
+    public void Unrooted_metrics_path_fails_validation(string path)
+    {
+        var ex = Assert.Throws<OptionsValidationException>(() => Validate(("DocInt:Metrics:Path", path)));
+        Assert.Contains("rooted route", ex.Message);
+
+        // Control: the shipped value satisfies it, so it is the path that fails and not the rule.
+        Validate();
+    }
+
+    // Off means off all the way down, including the path check: an operator who disables the route
+    // should not have to keep a value they no longer use.
+    [Fact]
+    public void Disabled_metrics_does_not_require_a_path() =>
+        Validate(("DocInt:Metrics:Enabled", "false"), ("DocInt:Metrics:Path", ""));
 }
