@@ -347,9 +347,15 @@ Recorded so they are not rediscovered from scratch. None blocks merge.
   negated line happens to be last: under `bash -eo pipefail`, `set -e` is exempt for a command
   that is the operand of `!`, so appending any line to either step silently kills its assertion.
   The two steps added in this change use the position-independent `if …; then exit 1; fi` form.
-- **`README.md`'s configuration table omits `DocInt:Admission:*` and `MaxRequestFileBytes`** —
-  and `DuplicateTracking:Capacity` from the previous change, so the gap is a pattern rather than
+- **`README.md`'s configuration table omitted `DocInt:Admission:*` and `MaxRequestFileBytes`** —
+  and `DuplicateTracking:Capacity` from the previous change, so the gap was a pattern rather than
   a regression. The prose in that file was corrected; the table was left alone.
+  **Fixed 2026-08-09** (by `e3adfa2`, before this bullet was re-read): all three are in the table.
+  Re-verified key by key against the five options classes and `appsettings.json` — every bindable
+  key is documented, the four validator rules the table quotes match `OptionsExtensions`, and
+  every name in the chart-value column exists in `values.yaml`. `MaxRequestBytes` is absent by
+  design: it is derived (`MaxRequestFileBytes + 1 MiB`), not bindable, and appears in the prose
+  of the row above it.
 - **A chunked body over the cap surfaces as `malformed_body`, not `body_too_large`.** Kestrel's
   `BadHttpRequestException` derives from `IOException` and is swallowed by the reader's
   `catch (IOException or InvalidDataException)`. Pre-existing, but roughly eight times more

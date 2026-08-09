@@ -216,7 +216,7 @@ truth, nothing to drift.
 
 | Key | Default | Chart value | What it does |
 | --- | --- | --- | --- |
-| `DocInt:MaxFileBytes` | `52428800` (50 MB) | `docint.maxFileBytes` | Per-file size cap; a larger file gets its own `too_large` error inside a 200 |
+| `DocInt:MaxFileBytes` | `52428800` (50 MiB) | `docint.maxFileBytes` | Per-file size cap; a larger file gets its own `too_large` error inside a 200 |
 | `DocInt:MaxFilesPerRequest` | `32` | `docint.maxFilesPerRequest` | Files accepted per request; more than this is a request-level 400 |
 | `DocInt:MaxRequestFileBytes` | `209715200` (200 MiB) | `docint.maxRequestFileBytes` | Cap on the **sum** of accepted file bytes in one request; over it is a request-level 400. Also sets what Kestrel accepts (this + 1 MiB), so lowering it lowers the pod's worst-case buffered payload. Must be ≥ `MaxFileBytes`, or one maximum-size file could never be accepted (rejected at boot) |
 | `DocInt:PerFileTimeoutSeconds` | `100` | `docint.perFileTimeoutSeconds` | Per-file engine budget; exceeding it yields a per-file `timeout` |
