@@ -351,5 +351,16 @@ Recorded so they are not rediscovered from scratch. None blocks merge.
   `BadHttpRequestException` derives from `IOException` and is swallowed by the reader's
   `catch (IOException or InvalidDataException)`. Pre-existing, but roughly eight times more
   reachable now that the accept ceiling dropped from 1.56 GiB to ~201 MiB.
+  **Fixed 2026-08-09**: the reader now catches `BadHttpRequestException` with status 413 ahead of
+  the malformed-framing catch. Two things established by probing a real Kestrel host, neither of
+  which this document had right. First, the counter *does* increment — the handler runs — so this
+  was a wrong tag rather than a missing measurement, and the note on `docint.rejected_requests`
+  claiming Kestrel terminates the request "before this code runs" was wrong and has been
+  rewritten. Second, **neither** over-cap path returns a 400 the caller can read: the response is
+  written without draining the body, so the connection resets while the client is still uploading
+  and an `HttpClient` caller surfaces a write error instead. That makes the reason tag an
+  observability fix with no client-visible component. Counting bytes in the reader to preempt the
+  cap was considered and rejected — Kestrel's tally is what it pulled off the socket, which runs
+  ahead of what the reader has consumed, so the throw can arrive before the first section does.
 - **`ExtractContractTests.SaturatedFactory` and `TelemetryTests.ShedFactory` are identical.**
   One shared fixture would do.

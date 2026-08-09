@@ -99,6 +99,19 @@ public sealed class MultipartExtractRequestReader(IOptions<DocIntOptions> option
                 }
             }
         }
+        catch (BadHttpRequestException ex) when (ex.StatusCode == StatusCodes.Status413PayloadTooLarge)
+        {
+            // Kestrel enforcing MaxRequestBodySize on a body that declared no Content-Length, so
+            // the guard at the top of this method never saw it. It cannot be preempted by counting
+            // here either: Kestrel's tally is what it pulled off the socket, which runs ahead of
+            // what this reader has consumed — the throw can arrive before the first section does.
+            // Its exception derives from IOException, so without this case it would fall into the
+            // catch below and an oversized upload would be reported as corrupt framing. Ordering
+            // matters: this must precede the IOException catch, and the status test is what keeps
+            // Kestrel's other 400-level rejections out of it.
+            throw new BadExtractRequestException(RejectReasons.BodyTooLarge,
+                $"request body exceeds the limit of {_options.MaxRequestBytes} bytes");
+        }
         catch (Exception ex) when (ex is IOException or InvalidDataException)
         {
             // Multipart in content-type but truncated/corrupt in framing: MultipartReader's

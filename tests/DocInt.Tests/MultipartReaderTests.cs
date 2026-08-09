@@ -1,3 +1,4 @@
+using System.Text;
 using DocInt.Api.Configuration;
 using DocInt.Api.Contracts;
 using DocInt.Api.Validation;
@@ -195,6 +196,95 @@ public class MultipartReaderTests
 
         Assert.Equal(2, files.Count);
         Assert.All(files, f => Assert.Null(f.Error));
+    }
+
+    // A body with no Content-Length skips the declared-size guard at the top of ReadAsync
+    // entirely, so the cap is enforced only by Kestrel — whose BadHttpRequestException derives
+    // from IOException and would otherwise land in the malformed-framing catch, attributing an
+    // oversized upload to corrupt framing.
+    //
+    // The throw is staged on the FIRST read because that is where it surfaces in practice:
+    // Kestrel counts what it pulled off the socket, which runs ahead of what this reader has
+    // consumed, so the exception can arrive before a single section byte does. That same
+    // read-ahead is why the reader cannot preempt the cap by counting bytes itself.
+    //
+    // What this pins is the mapping. That Kestrel throws this type with this status was verified
+    // against a real Kestrel host (statusCode=413, chain BadHttpRequestException < IOException),
+    // not by this suite — a change in that behaviour would not fail here.
+    [Fact]
+    public async Task Body_over_the_cap_with_no_declared_length_is_body_too_large()
+    {
+        var request = ChunkedRequest(new ThrowingBody(new BadHttpRequestException(
+            "Request body too large.", StatusCodes.Status413PayloadTooLarge)));
+
+        var ex = await Assert.ThrowsAsync<BadExtractRequestException>(
+            () => Reader().ReadAsync(request, CancellationToken.None));
+
+        Assert.Equal(RejectReasons.BodyTooLarge, ex.Reason);
+    }
+
+    // Control: corrupt framing must keep reporting malformed_body. Without this, a catch widened
+    // to every IOException still passes the test above. ExtractContractTests covers the truncated
+    // body end to end but asserts only the 400, never the reason.
+    [Fact]
+    public async Task Truncated_framing_with_no_declared_length_is_still_malformed_body()
+    {
+        const string boundary = "----truncated";
+        var body = Encoding.UTF8.GetBytes("--" + boundary + "\r\n"
+            + "Content-Disposition: form-data; name=\"files\"; filename=\"a.pdf\"\r\n"
+            + "Content-Type: application/pdf\r\n"
+            + "\r\n"
+            + "content that just stops, with no terminating boundary");
+        var request = ChunkedRequest(new MemoryStream(body), boundary);
+
+        var ex = await Assert.ThrowsAsync<BadExtractRequestException>(
+            () => Reader().ReadAsync(request, CancellationToken.None));
+
+        Assert.Equal(RejectReasons.MalformedBody, ex.Reason);
+    }
+
+    // The other control, and the one that pins the status filter rather than the exception type:
+    // Kestrel raises BadHttpRequestException for bad framing too, with 400. Dropping the
+    // status check would turn those into body_too_large and both tests above would still pass.
+    [Fact]
+    public async Task A_bad_request_that_is_not_a_size_rejection_stays_malformed_body()
+    {
+        var request = ChunkedRequest(new ThrowingBody(new BadHttpRequestException(
+            "Unexpected end of request content.", StatusCodes.Status400BadRequest)));
+
+        var ex = await Assert.ThrowsAsync<BadExtractRequestException>(
+            () => Reader().ReadAsync(request, CancellationToken.None));
+
+        Assert.Equal(RejectReasons.MalformedBody, ex.Reason);
+    }
+
+    /// <summary>
+    /// A request whose body carries no Content-Length, as chunked transfer encoding produces.
+    /// RequestOf sets one, which is exactly the guard these tests need to bypass.
+    /// </summary>
+    private static HttpRequest ChunkedRequest(Stream body, string boundary = "----chunked")
+    {
+        var context = new DefaultHttpContext();
+        context.Request.ContentType = $"multipart/form-data; boundary=\"{boundary}\"";
+        context.Request.Body = body;
+        context.Request.ContentLength = null;
+        return context.Request;
+    }
+
+    private sealed class ThrowingBody(Exception failure) : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => 0; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw failure;
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default) =>
+            throw failure;
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private static byte[] Pad(byte[] prefix, int total)
