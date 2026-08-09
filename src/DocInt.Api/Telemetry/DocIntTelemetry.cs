@@ -38,8 +38,11 @@ public sealed class DocIntTelemetry : IDisposable
             });
         RejectedRequests = _meter.CreateCounter<long>(RejectedRequestsInstrument, unit: "requests",
             description: "Requests rejected as malformed (400), by reason. Not a complete count of "
-                + "rejections: a body over the cap with no Content-Length is terminated by Kestrel "
-                + "before this code runs");
+                + "rejections: whatever Kestrel refuses at the request line or headers never "
+                + "reaches this code. A body over the cap does reach it, and counts as "
+                + "body_too_large whether or not a Content-Length was declared — but the caller "
+                + "usually sees a reset connection rather than that 400, because the response is "
+                + "written without draining the body it just refused");
         DuplicateFiles = _meter.CreateCounter<long>(DuplicateFilesInstrument, unit: "files",
             description: "Repeated file submissions. scope=request is exact. scope=pod is a LOWER "
                 + "BOUND, not a rate: the Service load-balances across replicas, so a repeat lands "
