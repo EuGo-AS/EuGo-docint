@@ -236,3 +236,27 @@ around it stays small enough to read. No `TimeProvider` and no `FakeTimeProvider
 timestamps are asserted as recent, not exact.
 
 Everything runs offline against fakes. No Azure credentials, no network.
+
+## 7. Found during implementation, deliberately not fixed
+
+Raised by the per-task reviews, adjudicated as Minor, and deferred rather than dropped.
+Recorded here because the review ledger they came from was scratch. None blocks merge; the
+first two are the ones with real teeth.
+
+- **The 200-character truncation boundary is unguarded repo-wide.** `A_long_message_is_truncated`
+  proves *that* a long message is shortened but not *where*: raising `FirstLine`'s threshold to
+  220 would still pass it, and `StartupConnectivityCheckTests` does not cover truncation at all.
+  So no test anywhere pins the number the two callers share.
+- **`DependencyHealthMonitor.ExecuteAsync`'s try/catch loop has no automated test.** All six
+  monitor tests call `ProbeOnceAsync` directly, so the guarantee that a probe throw never takes
+  the pod down rests on inspection alone. This follows from the decision in §6 to forbid
+  `FakeTimeProvider` — testing the loop needs controllable time.
+- **The first successful probe on a cold start logs "is reachable again"** though nothing was
+  ever unreachable. Comes verbatim from the plan, not an implementer choice; the fix is a
+  three-state initial value rather than a boolean.
+- **`A_timeout_that_does_not_fit_inside_the_interval_fails_host_startup` asserts only
+  `ThrowsAny<Exception>`.** Matches the file's existing `Malformed_endpoint_fails_host_startup`
+  pattern, and the reviewer's mutation analysis found the paired defaults test constrains it
+  adequately — so tightening it is a consistency question for the whole file, not this one test.
+- **`AzureFailureDescriptionTests`' class doc describes the periodic monitor**, not the string
+  formatter the class actually covers. Inherited verbatim from the task brief.

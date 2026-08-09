@@ -452,3 +452,30 @@ Each of these was raised and set aside; recorded so the reasoning is not re-deri
 - **An output-size counter** (Markdown bytes produced). No decision depends on it today.
 - **Warning counters.** Warnings are free-text strings with no code taxonomy; a counter would
   need one invented first, which is a larger change than it looks.
+
+### Found during implementation, deliberately not fixed
+
+Raised by the per-task reviews, adjudicated as Minor, and deferred rather than dropped.
+Recorded here because the review ledger they came from was scratch. None blocks merge. They
+share one shape: a test that passes for a weaker implementation than the one shipped.
+
+- **`TelemetryTests`' `MixedBatch` fixtures are all under the size cap**, so `SizeBytes` equals
+  `Bytes.Length` for every one of them and a `bytes_processed` implementation that read
+  `Bytes.Length` directly would pass identically. The code is right; the §2.5 coupling it
+  depends on is simply unasserted through the pipeline. Adding one over-cap fixture to that test
+  class would close this and the next item at once.
+- **`Under_cap_file_reports_its_own_length` would also pass against a naive
+  `SizeBytes => Bytes.Length`.** Correctly framed as a control for the over-cap test beside it —
+  noted so it is not mistaken for the assertion that pins §2.5.
+- **`A_hash_evicted_by_later_inserts_is_no_longer_recognised` asserts `(0, 0)` on an *enabled*
+  tracker**, which after Task 5's self-gating fix is coincidentally the same shape a *disabled*
+  tracker returns. If `DuplicateTrackingOptions.Enabled`'s code default ever flipped to false,
+  this one test would pass vacuously. Sibling tests assert non-zero values and would fail loudly,
+  so exposure is narrow.
+- **`OptionsTests`' new `Capacity` case checks only `Assert.Contains("positive", …)`** — a
+  substring all five validators share — so it does not prove the `DuplicateTracking` validator
+  specifically fired. Inherited from the pre-existing theory pattern rather than new here.
+- **`TelemetryTests.cs`'s `Assert.All` over `kind ∈ {xlsx, unknown}` would pass even if all
+  three measurements carried one value.** The sum assertion above it already pins the total.
+- **`ExtractionService`'s two edited lines (the trace tag and the log field) have no direct
+  assertion.** Standing up a log-capture harness for one field is disproportionate to the risk.
