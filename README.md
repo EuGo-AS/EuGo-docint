@@ -158,6 +158,9 @@ truth, nothing to drift.
   "DocInt": {
     "MaxFileBytes": 52428800,
     "MaxFilesPerRequest": 32,
+    // Cap on the SUM of accepted file bytes in one request, and so on what Kestrel accepts
+    // (this + 1 MiB of framing slack). Bounds the product of the two caps above.
+    "MaxRequestFileBytes": 209715200,
     "PerFileTimeoutSeconds": 100,
     "MaxParallelism": 4,
     // Boot-time reachability check over whichever endpoints below are set.
@@ -173,6 +176,21 @@ truth, nothing to drift.
       "Enabled": true,
       "IntervalSeconds": 30,
       "TimeoutSeconds": 4
+    },
+    // Per-pod counting of repeated submissions, behind docint.duplicate_files. Holds 64-bit
+    // content hashes only — no bytes, no filenames — FIFO-evicted at Capacity (~3 MB at 100000).
+    "DuplicateTracking": {
+      "Enabled": true,
+      "Capacity": 100000
+    },
+    // The per-pod ceiling on bytes held in flight, and the only thing bounding pod memory.
+    // BudgetBytes must be >= MaxRequestFileBytes + 1 MiB (enforced at boot). A request that
+    // cannot get budget within QueueTimeoutSeconds is shed with 503 + Retry-After.
+    "Admission": {
+      "Enabled": true,
+      "BudgetBytes": 1073741824,
+      "QueueTimeoutSeconds": 10,
+      "RetryAfterSeconds": 5
     }
   },
   // Both endpoints are blank by design — they are environment-specific and never committed.
@@ -200,6 +218,7 @@ truth, nothing to drift.
 | --- | --- | --- | --- |
 | `DocInt:MaxFileBytes` | `52428800` (50 MB) | `docint.maxFileBytes` | Per-file size cap; a larger file gets its own `too_large` error inside a 200 |
 | `DocInt:MaxFilesPerRequest` | `32` | `docint.maxFilesPerRequest` | Files accepted per request; more than this is a request-level 400 |
+| `DocInt:MaxRequestFileBytes` | `209715200` (200 MiB) | `docint.maxRequestFileBytes` | Cap on the **sum** of accepted file bytes in one request; over it is a request-level 400. Also sets what Kestrel accepts (this + 1 MiB), so lowering it lowers the pod's worst-case buffered payload. Must be ≥ `MaxFileBytes`, or one maximum-size file could never be accepted (rejected at boot) |
 | `DocInt:PerFileTimeoutSeconds` | `100` | `docint.perFileTimeoutSeconds` | Per-file engine budget; exceeding it yields a per-file `timeout` |
 | `DocInt:MaxParallelism` | `4` | `docint.maxParallelism` | Files processed concurrently. Raise it *with* `resources.limits.memory`, never alone — each in-flight file is buffered whole in memory |
 | `DocInt:StartupProbe:Enabled` | `true` | `extraEnv` | Dial every configured endpoint once at boot and refuse to start if one stays unreachable. See [Startup connectivity check](#startup-connectivity-check) |
@@ -210,6 +229,12 @@ truth, nothing to drift.
 | `DocInt:DependencyCheck:Enabled` | `true` | `extraEnv` | Re-dial every configured endpoint every `IntervalSeconds` and report it on `/healthz`. False registers neither the monitor nor the checks, so `/healthz` reports only `self`. See [What `/healthz` reports](#what-healthz-reports) |
 | `DocInt:DependencyCheck:IntervalSeconds` | `30` | `extraEnv` | Seconds between rounds. At 30 s this is 2 calls/min per dependency per pod; for Azure OpenAI that is a one-token completion against the same quota real vision traffic uses |
 | `DocInt:DependencyCheck:TimeoutSeconds` | `4` | `extraEnv` | Ceiling on one probe. Must be **less than** `IntervalSeconds` (rejected at boot otherwise), so a slow probe cannot overlap the next tick |
+| `DocInt:DuplicateTracking:Enabled` | `true` | `extraEnv` | Count repeated file submissions behind `docint.duplicate_files`. False skips the hashing as well as the accounting and emits **no** measurements — so a dashboard shows "no data" rather than a zero that would read as "no duplicates" |
+| `DocInt:DuplicateTracking:Capacity` | `100000` | `extraEnv` | Distinct 64-bit content hashes retained per pod, FIFO-evicted. ~3 MB at the default; flat rather than traffic-dependent. No bytes and no filenames are retained |
+| `DocInt:Admission:Enabled` | `true` | `docint.admission.enabled` | Hold a request until its bytes fit the pod's in-flight budget. False admits every request immediately; the request-level limits above still apply |
+| `DocInt:Admission:BudgetBytes` | `1073741824` (1 GiB) | `docint.admission.budgetBytes` | The per-pod ceiling on bytes held in flight, and the only thing bounding pod memory: peak is roughly baseline + this. Must be ≥ `MaxRequestFileBytes` + 1 MiB (rejected at boot), since a budget under the largest admissible request could never serve it |
+| `DocInt:Admission:QueueTimeoutSeconds` | `10` | `docint.admission.queueTimeoutSeconds` | How long a request waits for budget before being shed. Most bursts drain well inside it and still answer 200 |
+| `DocInt:Admission:RetryAfterSeconds` | `5` | `docint.admission.retryAfterSeconds` | The `Retry-After` value on the 503 sent to a shed request. See [Request-level 400 and 503](#request-level-400-and-503) |
 | `DocumentIntelligence:Endpoint` | `""` | `azure.documentIntelligence.endpoint` | `https://<resource>.cognitiveservices.azure.com/`. Serves PDF/DOCX/PPTX/HTML through the built-in `prebuilt-layout` model — no deployment name involved. Blank leaves those kinds on `engine_unconfigured` |
 | `DocumentIntelligence:ApiKey` | *unset — not in `appsettings.json`* | none, by design | Omit it and the client uses `DefaultAzureCredential` |
 | `AzureOpenAI:Endpoint` | `""` | `azure.openAI.endpoint` | `https://<resource>.openai.azure.com/` — the resource root only; the SDK appends `/openai/deployments/<name>/chat/completions`. Serves JPG/PNG |
@@ -218,7 +243,9 @@ truth, nothing to drift.
 | `Serilog:MinimumLevel:Default` | `Information` (`Microsoft` and `System` at `Error`) | `extraEnv` | Log verbosity. Document *content* is never logged at any level |
 | `Kestrel:EndPoints:Http:Url` | `http://*:8090` | — (chart fixes the container port at 8090) | Listen address |
 | `ASPNETCORE_ENVIRONMENT` | `Production` in the container | `extraEnv` | `Development` additionally maps the OpenAPI document |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | `extraEnv` | When set, turns on both the OTel trace/metric exporter and the Serilog OTLP log sink. The Aspire AppHost sets it for you |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | `otel.endpoint` | When set, turns on both the OTel trace/metric exporter and the Serilog OTLP log sink. The Aspire AppHost sets it for you. Unset, the [metrics below](#-telemetry) are collected in-process and go nowhere |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | unset → SDK default (`grpc`) | `otel.protocol` | Many collectors accept only `http/protobuf`, which is why this is first-class rather than left to `extraEnv` |
+| `OTEL_SERVICE_NAME` | unset → the assembly name `DocInt.Api` | — (chart derives it from the release fullname) | Rendered by the chart **only** when `otel.endpoint` is set. Without it every namespace reports as `DocInt.Api` and two releases cannot be told apart |
 
 Both `ApiKey` keys are bound by the options classes but deliberately absent from the committed
 `appsettings.json` — they exist only in user-secrets or the environment.
@@ -229,11 +256,23 @@ and Kestrel's ceiling follows automatically. This replaced `MaxFileBytes × MaxF
 (32 × 50 MiB ≈ 1.56 GiB), the pathological product of the two per-file caps — a body 78% the size
 of the container's entire memory limit, which Kestrel used to be configured to accept.
 
-**Validated at boot, not on first request.** All five `DocInt:*` values must be positive, both
+**Validated at boot, not on first request.** Every number above must be positive — the five
+`DocInt:*` limits, `DuplicateTracking:Capacity`, and the `Admission` budget and timings — both
 endpoints must be absolute URIs, and `DeploymentNameVision` is required once `AzureOpenAI:Endpoint`
-is set; a violation stops the host at startup. The service then logs its whole effective
-configuration once, with secret-shaped keys valued `***redacted***` — the fastest way to confirm
-what a pod actually came up with.
+is set. Four *relationships* are enforced too, each because violating it fails silently at runtime
+rather than loudly at boot:
+
+- `MaxRequestFileBytes` ≥ `MaxFileBytes` — otherwise one maximum-size file is inadmissible.
+- `Admission:BudgetBytes` ≥ `MaxRequestFileBytes` + 1 MiB — otherwise a live request asks the
+  limiter for more permits than it owns.
+- `StartupProbe:TotalTimeoutSeconds` ≥ `Attempts × AttemptTimeoutSeconds` — otherwise the final
+  attempt, the one that matters, is cut short.
+- `DependencyCheck:TimeoutSeconds` < `IntervalSeconds` — otherwise a slow probe overlaps the next
+  tick.
+
+A violation stops the host at startup. The service then logs its whole effective configuration
+once, with secret-shaped keys valued `***redacted***` — the fastest way to confirm what a pod
+actually came up with.
 
 ### Startup connectivity check
 
@@ -336,6 +375,56 @@ Deployment shape — no `appsettings.json` equivalent:
 | `resources` | requests `250m` / `512Mi`, limit `2Gi` memory | Memory is generous because files are buffered whole; no CPU limit, since throttling costs more latency than it saves |
 | `service.port` | `8090` | ClusterIP port — no ingress, by design |
 | `extraEnv` | `[]` | Verbatim `name`/`value` entries for keys with no first-class value above |
+
+## 📊 Telemetry
+
+Traces, logs and metrics all leave over OTLP, and only when `otel.endpoint` is set — see
+[Application settings](#application-settings). Unset, everything below is collected in-process and
+discarded, which is the shipped default.
+
+**Metrics.** Seven instruments on the meter `EuGo.DocInt`:
+
+| Instrument | Type | Unit | Tags |
+| --- | --- | --- | --- |
+| `docint.pages_processed` | counter | pages | `kind` |
+| `docint.files_processed` | counter | files | `kind`, `outcome` |
+| `docint.bytes_processed` | counter | By | `kind` |
+| `docint.file_duration` | histogram | s | `kind`, `outcome` |
+| `docint.duplicate_files` | counter | files | `scope` |
+| `docint.rejected_requests` | counter | requests | `reason` |
+| `docint.shed_requests` | counter | requests | `reason` |
+
+`kind` is the six wire kinds plus `unknown`; `outcome` is `ok` plus the seven error codes;
+`scope` is `request` or `pod`; `reason` is a closed set per instrument. **Tags are deliberately
+low-cardinality** — never a filename, never a content hash, never an exception message.
+
+Four of these say something a dashboard will otherwise get wrong:
+
+- **`files_processed` and `bytes_processed` count failures too.** Bytes are what was *read*, not
+  what was successfully extracted, so a corrupt 40 MiB upload still shows its 40 MiB.
+- **`duplicate_files` carries two scopes that mean different things.** `scope=request` — the same
+  content submitted twice in one batch — is exact. `scope=pod` is a **lower bound, not a rate**:
+  the Service load-balances across replicas, so a repeat lands on the pod that saw it roughly 1/N
+  of the time, and the value moves when the HPA scales. Don't quote it as a percentage.
+- **`rejected_requests` is not a complete count of rejections.** It counts what the service decided
+  on. A body over the cap with no `Content-Length` is terminated by Kestrel first, so use
+  `http.server.request.duration` by status code for the total.
+- **`shed_requests` is not a failure count.** A shed request is well-formed and retryable — 503 with
+  `Retry-After` — as opposed to the malformed 400s in `rejected_requests`.
+
+There is deliberately no request-count instrument: `AddAspNetCoreInstrumentation` already emits
+`http.server.request.duration` with route and status for `POST /v1/extract`.
+
+**Traces.** One activity per file, `docint.extract_file`, tagged `docint.kind`,
+`docint.size_bytes` and `docint.outcome`. No filenames in trace tags.
+
+**Logs.** One line per file with filename, kind, size, outcome and duration. Document *content* is
+never logged at any level, and a test asserts it by processing the golden fixtures and checking
+their known strings are absent from captured output.
+
+> **No collector ships with this repo.** `otel.endpoint` is the hook; standing up an OTLP collector
+> is EuGo-infra's side of the work. Until then these are visible in the Aspire dashboard locally
+> and in the test suite, and nowhere in the cluster.
 
 ## 🚢 Deploy
 
