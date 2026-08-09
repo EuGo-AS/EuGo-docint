@@ -379,6 +379,8 @@ Deployment shape — no `appsettings.json` equivalent:
 | `service.port` | `8090` | ClusterIP port — no ingress, by design |
 | `metrics.enabled` / `.path` | `""` / `""` → the image's `true` and `/metrics` | Override the scrape route; empty leaves the image's defaults, like the `docint.*` limits |
 | `metrics.scrapeAnnotations` | `false` | Adds `prometheus.io/scrape`·`port`·`path` to pods. Inert today — nothing in the cluster reads them — and the keys need confirming against whatever scraper infra stands up |
+| `otel.endpoint` | `""` | The push half of [Telemetry](#-telemetry). Sets `OTEL_EXPORTER_OTLP_ENDPOINT` (e.g. `http://otel-collector.observability:4317`) and, with it, a derived `OTEL_SERVICE_NAME`. Empty omits both, so traces and logs leave the pod nowhere and `/metrics` is the only way out |
+| `otel.protocol` | `""` → SDK default `grpc` | Sets `OTEL_EXPORTER_OTLP_PROTOCOL`, and only alongside `otel.endpoint`. First-class rather than left to `extraEnv` because many collectors accept only `http/protobuf` |
 | `extraEnv` | `[]` | Verbatim `name`/`value` entries for keys with no first-class value above |
 
 ## 📊 Telemetry
