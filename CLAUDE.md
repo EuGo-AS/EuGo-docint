@@ -42,7 +42,7 @@ src/DocInt.slnx
 │  ├─ Contracts/        request/response DTOs + OpenAPI
 │  ├─ Engines/          EngineRouter · LayoutEngine · SpreadsheetEngine · VisionEngine
 │  ├─ Validation/       size/type caps, kind detection
-│  └─ Telemetry/        Serilog config, pages-processed metric
+│  └─ Telemetry/        Serilog config, the EuGo.DocInt meter (7 instruments), duplicate tracker
 ├─ AppHost/             Aspire orchestrator (Aspire.AppHost.Sdk/13.1.0), resource "docint"
 └─ ServiceDefaults/     stock Aspire defaults (OTel, health, resilience)
 tests/DocInt.Tests/     contract + golden-file tests (env-gated live smoke)
