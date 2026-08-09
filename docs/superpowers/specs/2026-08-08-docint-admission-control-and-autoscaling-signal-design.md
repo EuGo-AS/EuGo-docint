@@ -308,11 +308,14 @@ so existing tests are unaffected while the wiring gets genuine coverage; saturat
 the budget explicitly. This differs from the probe-consumer pattern, which blanks `Enabled` in
 the factory — the gate is not an `IStartupProbe` consumer and cannot perturb attempt counts.
 
-**Verification note for the plan.** `chart-lint` is red on this branch independently of this
-work: `.github/workflows/ci.yml` carries an uncommitted step asserting the OTLP env vars, whose
-chart half is the unfinished last task of the usage-counters plan. A green CI job is therefore
-not available as the signal for chart changes here; local `helm template` runs are (helm 4.1.4
-is installed).
+**Verification note for the plan.** `chart-lint` was red on this branch independently of this
+work: `.github/workflows/ci.yml` carried an uncommitted step asserting the OTLP env vars, whose
+chart half was the unfinished last task of the usage-counters plan. A green CI job was therefore
+not available as the signal for chart changes here; local `helm template` runs were (helm 4.1.4
+is installed). **Resolved 2026-08-09**: both halves are committed — `chart-lint`'s OTLP
+assertions in `ci.yml` and the chart's `otel.*` values — and CI is green on `main`. The
+paragraph survives only so a reader of the plan's verification steps knows why they name local
+`helm template` runs rather than a CI job.
 
 ## 11. Deferred
 
@@ -364,3 +367,8 @@ Recorded so they are not rediscovered from scratch. None blocks merge.
   ahead of what the reader has consumed, so the throw can arrive before the first section does.
 - **`ExtractContractTests.SaturatedFactory` and `TelemetryTests.ShedFactory` are identical.**
   One shared fixture would do.
+- **Two pre-existing `CS8602` nullable-dereference warnings in `SpreadsheetEngine.cs`** (lines 43
+  and 91). Not caused by any change in this document's work, and invisible on an incremental
+  build — they reappear only when `DocInt.Api` actually recompiles, which is why a clean build
+  reports two warnings where a warm one reports none. Recorded because that intermittency reads
+  as a regression every time someone meets it.
