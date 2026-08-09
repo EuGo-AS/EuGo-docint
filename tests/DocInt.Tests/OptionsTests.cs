@@ -137,7 +137,7 @@ public class OptionsTests
     // of the real Azure adapter, upstream of the router's try/catch). Garbage config must now
     // fail loudly at boot instead. Absent config (the stub-first path) must keep booting fine —
     // covered by ExtractContractTests.Unconfigured_layout_engine_yields_per_file_engine_unconfigured
-    // and HealthEndpointsTests.Healthz_returns_healthy, both of which run a bare DocIntAppFactory
+    // and HealthEndpointsTests.Health_returns_healthy, both of which run a bare DocIntAppFactory
     // with no endpoint configured at all.
 
     [Theory]

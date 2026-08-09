@@ -2,10 +2,6 @@ using System.Net;
 using System.Text.Json;
 using DocInt.Api.Configuration;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
-using OpenTelemetry.Instrumentation.AspNetCore;
 
 namespace DocInt.Tests;
 
@@ -58,29 +54,8 @@ public class MetricsEndpointTests : IClassFixture<ContractTestFactory>
     }
 }
 
-/// <summary>
-/// The scrape route excludes itself from tracing by wrapping the filter ServiceDefaults installed,
-/// which is two assumptions at once: that the wrapper lands on the options instance the
-/// instrumentation resolves, and that it composes rather than replaces. Both fail silently — a
-/// replaced filter would still exclude /metrics while quietly putting /alive back into every trace
-/// — so the aliveness case below is the one that earns this test.
-/// </summary>
-public class MetricsTracingFilterTests : IClassFixture<DocIntAppFactory>
-{
-    private readonly Func<HttpContext, bool> _filter;
-
-    public MetricsTracingFilterTests(DocIntAppFactory factory) =>
-        _filter = factory.Services.GetRequiredService<IOptionsMonitor<AspNetCoreTraceInstrumentationOptions>>()
-            .Get(Options.DefaultName).Filter!;
-
-    [Theory]
-    [InlineData("/metrics", false)]          // ours
-    [InlineData("/alive", false)]            // ServiceDefaults', and still in force
-    [InlineData("/v1/extract", true)]        // the traffic that must keep its spans
-    [InlineData("/info", true)]
-    public void Only_the_scrape_and_the_probes_are_filtered_out(string path, bool traced) =>
-        Assert.Equal(traced, _filter(new DefaultHttpContext { Request = { Path = path } }));
-}
+// The scrape route's own tracing exclusion is asserted in TraceFilterTests, alongside the probe
+// endpoints' — one filter, one place, and that class also checks every excluded path is served.
 
 /// <summary>
 /// The scrape route and the OTLP exporter are two readers on one MeterProvider, and Prometheus

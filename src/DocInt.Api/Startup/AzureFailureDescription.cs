@@ -12,7 +12,7 @@ namespace DocInt.Api.Startup;
 /// Extracted from <see cref="StartupConnectivityCheck"/> once the periodic
 /// <c>DependencyHealthMonitor</c> needed the identical rendering: the boot-time failure and
 /// the running-service failure must read the same, or an operator comparing a pod log to a
-/// /healthz body sees two descriptions of one fault.
+/// /health body sees two descriptions of one fault.
 /// </remarks>
 internal static class AzureFailureDescription
 {

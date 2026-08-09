@@ -6,7 +6,7 @@ namespace DocInt.Api.Health;
 
 /// <summary>
 /// Re-dials every configured Azure endpoint on a timer and records the verdict, so a
-/// dependency that fails *after* a successful boot becomes visible on /healthz instead of
+/// dependency that fails *after* a successful boot becomes visible on /health instead of
 /// showing up only as an engine_error in a caller's response body.
 /// </summary>
 /// <remarks>

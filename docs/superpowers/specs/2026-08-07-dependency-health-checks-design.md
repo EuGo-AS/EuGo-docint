@@ -2,6 +2,15 @@
 
 **Date:** 2026-08-07
 **Status:** approved in brainstorming; this document is the written spec.
+**Amended 2026-08-09 — the endpoint moved to `/health`.** Read every `/healthz` below as
+`/health`; nothing else in this document changes — same body, same status codes, same
+`Degraded` → 200 rule. The rename is not cosmetic: ServiceDefaults' tracing filter excludes
+its `HealthEndpointPath` constant, which has always been `/health`, and `StartsWithSegments`
+compares whole segments — so while the route was `/healthz` the exclusion matched nothing and
+every readiness probe was traced. The `z` suffix is a Google/Kubernetes convention with no
+standard behind it (kube-apiserver has itself deprecated `/healthz` for `/livez` + `/readyz`),
+so matching the framework's own constant costs nothing and closes the bug at its source. Sibling
+`../EuGo-mcp` already serves `/health` + `/alive`.
 **Supersedes:** one clause of §1 of `2026-07-26-eugo-docint-helm-chart-design.md`. That
 section correctly anticipated dependency checks being added *untagged*, so they affect
 `/healthz` (readiness) and never `/alive` (liveness) — that half stands. It also stated that

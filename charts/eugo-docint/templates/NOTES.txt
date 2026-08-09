@@ -3,7 +3,7 @@ EuGo-docint {{ .Chart.AppVersion }} deployed (cluster-internal, no ingress).
 In-cluster API endpoint:
   http://{{ include "eugo-docint.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}/v1/extract
 
-Health:  /healthz (readiness, all checks)   /alive (liveness, self only)
+Health:  /health (readiness, all checks)   /alive (liveness, self only)
 Info:    /info
 {{- if not .Values.azure.documentIntelligence.endpoint }}
 

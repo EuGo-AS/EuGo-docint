@@ -98,10 +98,17 @@ try
         app.MapOpenApi();
     }
 
-    // Two separate options objects, deliberately. /healthz is readiness and carries the
+    // Two separate options objects, deliberately. /health is readiness and carries the
     // dependency report; /alive is liveness and must stay a plain-text, local-only answer —
     // sharing one object here would silently change the liveness body.
-    app.MapHealthChecks("/healthz", new HealthCheckOptions
+    //
+    // The paths match ServiceDefaults' HealthEndpointPath/AlivenessEndpointPath on purpose: those
+    // constants also drive its tracing filter, and while this route was /healthz the filter
+    // matched nothing and traced every readiness probe. That makes NOT calling
+    // app.MapDefaultEndpoints() load-bearing in a way it was not before — it maps these same two
+    // paths in Development, so restoring the call would now double-register both and throw
+    // AmbiguousMatchException at request time instead of only colliding on /alive.
+    app.MapHealthChecks("/health", new HealthCheckOptions
     {
         ResponseWriter = HealthResponseWriter.WriteAsync,
         // Explicit, though these are the framework's defaults: the whole design rests on a
@@ -132,7 +139,7 @@ try
         .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
         .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
         .FirstOrDefault()?.InformationalVersion ?? "unknown";
-    string[] endpoints = ["/", "/v1/extract", "/healthz", "/alive", "/info",
+    string[] endpoints = ["/", "/v1/extract", "/health", "/alive", "/info",
         .. metrics.Enabled ? new[] { metrics.Path } : []];
     app.MapGet("/info", () => Results.Json(new
     {

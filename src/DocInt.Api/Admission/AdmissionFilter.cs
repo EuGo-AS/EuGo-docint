@@ -7,7 +7,7 @@ namespace DocInt.Api.Admission;
 
 /// <summary>
 /// Reserves in-flight budget before the body is read. Sits on /v1/extract as an endpoint filter
-/// rather than as middleware so it covers exactly the route that buffers — /healthz and /alive
+/// rather than as middleware so it covers exactly the route that buffers — /health and /alive
 /// must answer under saturation, which is when they matter most.
 /// </summary>
 public sealed class AdmissionFilter(
