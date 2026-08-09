@@ -98,7 +98,13 @@ jobs:
           grep -A1 'DocInt__MaxParallelism' zero-parallelism.yaml > matched-parallelism.txt
           grep -q 'value: "0"' matched-parallelism.txt
           render > default.yaml
-          ! grep -q 'DocInt__' default.yaml
+          # `set -e` does not fire on a negated command, so a bare `! grep` asserts nothing
+          # unless it happens to be its step's last line -- the step's exit status then comes
+          # from whatever runs after it. Explicit `if` at every negated site instead, so
+          # appending a line to any of these steps cannot silently disable the assertion.
+          if grep -q 'DocInt__' default.yaml; then
+            echo "a DocInt__ var rendered with every limit unset"; exit 1
+          fi
       # The counters added in this release are invisible without an OTLP endpoint, so the chart
       # has to be able to set one. Both halves are asserted: set renders all three vars (the
       # service name is derived, not user-supplied, and without it every namespace reports as
@@ -112,7 +118,10 @@ jobs:
           grep -q 'OTEL_EXPORTER_OTLP_PROTOCOL' otel-on.yaml
           grep -q 'OTEL_SERVICE_NAME' otel-on.yaml
           render > otel-off.yaml
-          ! grep -q 'OTEL_' otel-off.yaml
+          # Explicit `if`, not `! grep` -- see the note in the zero-limits step above.
+          if grep -q 'OTEL_' otel-off.yaml; then
+            echo "an OTEL_ var rendered with no endpoint configured"; exit 1
+          fi
       # The CPU metric alone never fires on the Azure-bound path -- the pod is blocked on I/O while
       # memory climbs -- so scale-out has to key on memory too. Both halves are asserted: the metric
       # renders with the configured value, and blanking it removes only the memory metric, which is
@@ -124,9 +133,7 @@ jobs:
           grep -q 'averageValue: 900Mi' hpa-on.yaml
           grep -q 'stabilizationWindowSeconds: 600' hpa-on.yaml
           render --set autoscaling.targetMemoryAverageValue="" > hpa-off.yaml
-          # `set -e` does not fire on a negated command, so a bare `! grep` that is not the last
-          # line in a step asserts nothing -- the step's exit status comes from whatever runs
-          # after it. Explicit `if` instead, so this does not depend on staying last.
+          # Explicit `if`, not `! grep` -- see the note in the zero-limits step above.
           if grep -q 'averageValue' hpa-off.yaml; then
             echo "memory metric still rendered after blanking targetMemoryAverageValue"; exit 1
           fi
