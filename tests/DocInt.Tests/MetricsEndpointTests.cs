@@ -108,17 +108,33 @@ public class MetricsAlongsideOtlpTests
     {
         using var factory = new OtlpFactory();
         var client = factory.CreateClient();
+        var before = FilesProcessed(await Scrape(client));
+
         using var form = Multipart.Form(("a.pdf", TestBytes.Pdf, "application/pdf"));
         (await client.PostAsync("/v1/extract", form)).EnsureSuccessStatusCode();
 
-        var body = await (await client.GetAsync("/metrics")).Content.ReadAsStringAsync();
+        // A delta, not an absolute count. System.Diagnostics.Metrics matches meters by NAME across
+        // the whole process, so this host's MeterProvider also aggregates whatever the other test
+        // hosts' "EuGo.DocInt" meters publish while it is listening -- an absolute assertion here
+        // read whichever other extract tests happened to be in flight, and failed as 4 != 1. Noise
+        // can only inflate the delta, never suppress this request's own measurement, so >= 1 is
+        // both stable and still the thing worth asserting: a reader that never received the
+        // measurement renders the series at its old value and the delta is 0.
+        var after = FilesProcessed(await Scrape(client));
 
-        var line = body.Split('\n').FirstOrDefault(l => l.StartsWith("docint_files_processed_files_total{"));
-        Assert.NotNull(line);
-        // The value, not just the line: a delta-temporality reader stealing the measurement would
-        // still render the series, at 0.
-        Assert.Equal(1, int.Parse(line.Split(' ')[^1].Trim()));
+        Assert.True(after - before >= 1,
+            $"the scrape did not see the request: {before} -> {after}");
     }
+
+    // No caching to defeat: the exporter is registered with ScrapeResponseCacheDurationMilliseconds
+    // at 0, so the second scrape re-renders rather than replaying the first.
+    private static async Task<string> Scrape(HttpClient client) =>
+        await (await client.GetAsync("/metrics")).Content.ReadAsStringAsync();
+
+    /// <summary>Sums the series, since the tag set varies with how the file was handled.</summary>
+    private static int FilesProcessed(string exposition) => exposition.Split('\n')
+        .Where(l => l.StartsWith("docint_files_processed_files_total{"))
+        .Sum(l => int.Parse(l.Split(' ')[^1].Trim()));
 }
 
 /// <summary>
