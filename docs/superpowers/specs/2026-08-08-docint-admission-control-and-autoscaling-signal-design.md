@@ -325,3 +325,31 @@ is installed).
   `QueueTimeoutSeconds` empirically; omitted from v1 because nothing scrapes it yet.
 - **Bounding node ephemeral storage for `/tmp`** (`sizeLimit` on the `emptyDir`). Pre-existing
   follow-up from the 2026-08-06 fix, now more tractable since concurrent XLSX files are bounded.
+
+### Found during implementation, deliberately not fixed here
+
+Recorded so they are not rediscovered from scratch. None blocks merge.
+
+- **Queued requests sit outside the budget.** `RequestAdmissionGate` sets
+  `QueueLimit = int.MaxValue` and Kestrel still has no `MaxConcurrentConnections`, so an
+  unbounded number of requests can wait up to `QueueTimeoutSeconds`. Each queued connection can
+  hold up to Kestrel's `MaxRequestBufferSize` (1 MiB default) of socket read-ahead before
+  backpressure — roughly 1 GiB unaccounted at ~1000 concurrent queued uploads. The service is
+  cluster-internal, so this bounds the invariant's exactness rather than posing a live risk;
+  `Kestrel.Limits.MaxConcurrentConnections` is the natural companion knob.
+- **`BufferAsync`'s unsized `MemoryStream`.** Pre-sizing it to the part cap would remove most of
+  the ~30% transient over-allocation quantified in §7.
+- **Two `chart-lint` steps still use a bare `! grep -q` assertion** (`.github/workflows/ci.yml`,
+  the pre-existing `/tmp`-mount and zero-limits steps). Both work **today** only because their
+  negated line happens to be last: under `bash -eo pipefail`, `set -e` is exempt for a command
+  that is the operand of `!`, so appending any line to either step silently kills its assertion.
+  The two steps added in this change use the position-independent `if …; then exit 1; fi` form.
+- **`README.md`'s configuration table omits `DocInt:Admission:*` and `MaxRequestFileBytes`** —
+  and `DuplicateTracking:Capacity` from the previous change, so the gap is a pattern rather than
+  a regression. The prose in that file was corrected; the table was left alone.
+- **A chunked body over the cap surfaces as `malformed_body`, not `body_too_large`.** Kestrel's
+  `BadHttpRequestException` derives from `IOException` and is swallowed by the reader's
+  `catch (IOException or InvalidDataException)`. Pre-existing, but roughly eight times more
+  reachable now that the accept ceiling dropped from 1.56 GiB to ~201 MiB.
+- **`ExtractContractTests.SaturatedFactory` and `TelemetryTests.ShedFactory` are identical.**
+  One shared fixture would do.
