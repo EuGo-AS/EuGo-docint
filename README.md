@@ -14,7 +14,7 @@ no document content in logs.
 optional `hints` part `{"<filename>":{"purpose":"bom|photo"}}`. Well-formed requests return `200`
 with per-file success or error, unless the pod's in-flight byte budget stays full for the whole
 queue window, which is a retryable `503` with `Retry-After`. Also: `GET /healthz`, `GET /info`,
-OpenAPI JSON in Development.
+`GET /` (plain-text service banner `EuGo-docint`), OpenAPI JSON in Development.
 
 Limits (files per request, bytes per file, per-file timeout) are configurable — see
 [Configuration](#-configuration). Wire format: camelCase, lowercase enum values, null fields omitted.
