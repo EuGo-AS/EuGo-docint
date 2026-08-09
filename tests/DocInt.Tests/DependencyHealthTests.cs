@@ -14,7 +14,7 @@ using Microsoft.Extensions.Options;
 namespace DocInt.Tests;
 
 /// <summary>
-/// The periodic dependency-reachability report behind /healthz. Its whole value is that a
+/// The periodic dependency-reachability report behind /health. Its whole value is that a
 /// dependency that dies *after* a successful boot becomes visible without the pod being
 /// evicted — so the tests that matter are the state mapping and the fact that nothing here
 /// can take the pod down.

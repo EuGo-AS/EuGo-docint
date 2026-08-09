@@ -4,7 +4,7 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 namespace DocInt.Api.Health;
 
 /// <summary>
-/// Renders the health report as JSON, so /healthz can say *which* dependency is unreachable
+/// Renders the health report as JSON, so /health can say *which* dependency is unreachable
 /// and why — the plain-text default carries only an aggregate word.
 /// </summary>
 /// <remarks>

@@ -13,7 +13,7 @@ no document content in logs.
 `POST /v1/extract` — `multipart/form-data`: N file parts named `files` (pdf/docx/pptx/html/xlsx/jpg/png),
 optional `hints` part `{"<filename>":{"purpose":"bom|photo"}}`. Well-formed requests return `200`
 with per-file success or error, unless the pod's in-flight byte budget stays full for the whole
-queue window, which is a retryable `503` with `Retry-After`. Also: `GET /healthz`, `GET /info`,
+queue window, which is a retryable `503` with `Retry-After`. Also: `GET /health`, `GET /info`,
 `GET /` (plain-text service banner `EuGo-docint`), OpenAPI JSON in Development.
 
 Limits (files per request, bytes per file, per-file timeout) are configurable — see
@@ -171,7 +171,7 @@ truth, nothing to drift.
       "AttemptTimeoutSeconds": 4,
       "TotalTimeoutSeconds": 25
     },
-    // Periodic reachability check over the same endpoints; reported on /healthz, never fatal.
+    // Periodic reachability check over the same endpoints; reported on /health, never fatal.
     "DependencyCheck": {
       "Enabled": true,
       "IntervalSeconds": 30,
@@ -226,7 +226,7 @@ truth, nothing to drift.
 | `DocInt:StartupProbe:RetryDelaySeconds` | `2` | `extraEnv` | Base backoff between attempts; exponential with jitter, capped at 2× the base |
 | `DocInt:StartupProbe:AttemptTimeoutSeconds` | `4` | `extraEnv` | Ceiling on one attempt, so a hung handshake can't starve the rest. Must cover a cold `DefaultAzureCredential` token round-trip, not just the call |
 | `DocInt:StartupProbe:TotalTimeoutSeconds` | `25` | `extraEnv` | Ceiling on the whole check. Must be ≥ `Attempts × AttemptTimeoutSeconds` (rejected at boot otherwise); past ~30 s the pod's liveness probe restarts the container mid-check |
-| `DocInt:DependencyCheck:Enabled` | `true` | `extraEnv` | Re-dial every configured endpoint every `IntervalSeconds` and report it on `/healthz`. False registers neither the monitor nor the checks, so `/healthz` reports only `self`. See [What `/healthz` reports](#what-healthz-reports) |
+| `DocInt:DependencyCheck:Enabled` | `true` | `extraEnv` | Re-dial every configured endpoint every `IntervalSeconds` and report it on `/health`. False registers neither the monitor nor the checks, so `/health` reports only `self`. See [What `/health` reports](#what-health-reports) |
 | `DocInt:DependencyCheck:IntervalSeconds` | `30` | `extraEnv` | Seconds between rounds. At 30 s this is 2 calls/min per dependency per pod; for Azure OpenAI that is a one-token completion against the same quota real vision traffic uses |
 | `DocInt:DependencyCheck:TimeoutSeconds` | `4` | `extraEnv` | Ceiling on one probe. Must be **less than** `IntervalSeconds` (rejected at boot otherwise), so a slow probe cannot overlap the next tick |
 | `DocInt:DuplicateTracking:Enabled` | `true` | `extraEnv` | Count repeated file submissions behind `docint.duplicate_files`. False skips the hashing as well as the accounting and emits **no** measurements — so a dashboard shows "no data" rather than a zero that would read as "no duplicates" |
@@ -320,9 +320,9 @@ authenticates with Workload Identity — set `serviceAccount.azureClientId` and 
 unset. Note that `DefaultAzureCredential` in a container cannot fall back to the Azure CLI (the
 chiseled image has no shell), so a container needs a real identity leg or an API key.
 
-### What `/healthz` reports
+### What `/health` reports
 
-`/healthz` is the readiness probe. It answers **200** with a JSON body:
+`/health` is the readiness probe. It answers **200** with a JSON body:
 
 ```json
 {
@@ -430,7 +430,7 @@ their known strings are absent from captured output.
 
 Helm chart in [charts/eugo-docint](charts/eugo-docint) — Deployment, ClusterIP service on 8090,
 Workload-Identity ServiceAccount, HPA (CPU 70 %, min 2 / max 6). No ingress: the service is
-cluster-internal by design. Probes: liveness `/alive`, readiness `/healthz`.
+cluster-internal by design. Probes: liveness `/alive`, readiness `/health`.
 
 ```bash
 helm install docint charts/eugo-docint \

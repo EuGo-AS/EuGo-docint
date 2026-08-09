@@ -4,7 +4,7 @@ namespace DocInt.Api.Health;
 
 /// <summary>
 /// Reports one dependency's last known reachability. Reads the snapshot and returns — no I/O,
-/// so /healthz stays well inside the kubelet's 1s probe deadline no matter how slow Azure is.
+/// so /health stays well inside the kubelet's 1s probe deadline no matter how slow Azure is.
 /// </summary>
 /// <remarks>
 /// A failure is <see cref="HealthStatus.Degraded"/>, never Unhealthy, and the endpoint maps

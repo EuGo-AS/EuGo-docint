@@ -75,7 +75,7 @@ public sealed class StartupProbeOptions
 }
 
 /// <summary>
-/// The periodic reachability check that keeps /healthz honest after boot. Nested under DocInt
+/// The periodic reachability check that keeps /health honest after boot. Nested under DocInt
 /// alongside StartupProbe (DocInt__DependencyCheck__Enabled from the environment).
 /// </summary>
 /// <remarks>
@@ -91,7 +91,7 @@ public sealed class DependencyCheckOptions
     /// <summary>
     /// The off switch, carrying its default for the same reason StartupProbe's does: a bool has
     /// no "absent", and defaulting to false would turn a typo into silent non-reporting. False
-    /// registers neither the monitor nor the checks, so /healthz reports only "self" — off means
+    /// registers neither the monitor nor the checks, so /health reports only "self" — off means
     /// silent, not pinned at "not yet checked".
     /// </summary>
     public bool Enabled { get; set; } = true;
