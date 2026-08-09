@@ -36,6 +36,14 @@
          security boundary here, only a diagnostic counter, and the 64-bit output is exactly what
          the tracker's cache stores. -->
     <PackageReference Include="System.IO.Hashing" Version="10.0.10" />
+    <!-- Prerelease on purpose, and there is no alternative: this exporter has never shipped a
+         stable version — every release since 1.4.0 is -alpha/-beta — because it tracks an
+         experimental part of the spec. Its own README says to prefer the OTLP exporter in
+         production, and we do: OTLP stays the primary path and this is an additive second reader
+         (see MetricsOptions). The beta version tracks the core packages' 1.17.0 in ServiceDefaults;
+         move them together, and re-read the exporter's changelog when you do — "subject to
+         breaking changes" is the reason this comment exists. -->
+    <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.17.0-beta.1" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\ServiceDefaults\ServiceDefaults.csproj" />

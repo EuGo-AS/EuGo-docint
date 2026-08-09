@@ -80,9 +80,26 @@ docint:
     queueTimeoutSeconds: ""
     retryAfterSeconds: ""
 
+# The Prometheus scrape route, which the image serves on /metrics by default. This block only
+# overrides that and advertises it -- the route is on whether or not anything here is set.
+metrics:
+  # false sets DocInt__Metrics__Enabled=false and removes the route entirely (a 404, not an empty
+  # 200). Empty leaves the image's default, which is on.
+  enabled: ""
+  # Sets DocInt__Metrics__Path; empty leaves the image's /metrics. If you change it, the
+  # annotation below follows automatically -- they read the same value.
+  path: ""
+  # Pod annotations for scrapers that discover targets the prometheus.io/* way. OFF by default and
+  # currently inert either way: EuGo-infra runs no Prometheus and no collector, so nothing reads
+  # them. Until it does, reach the route with `kubectl port-forward svc/<release> 8090:8090` and
+  # curl it. Confirm the keys against whatever scraper infra actually stands up before turning
+  # this on -- Azure Monitor managed Prometheus takes its scrape config from its own ConfigMap and
+  # does not honour these by default.
+  scrapeAnnotations: false
+
 # Telemetry export. Empty endpoint omits all three vars below, which is the shipped behaviour:
-# traces and metrics are collected in-process and go nowhere. Set it to an OTLP collector to
-# ship them. The counters on /v1/extract are unreadable outside the pod without this.
+# traces and metrics are collected in-process and go nowhere over OTLP. Set it to an OTLP collector
+# to ship them; the scrape route above is the other way to read the same instruments.
 otel:
   # Sets OTEL_EXPORTER_OTLP_ENDPOINT, e.g. http://otel-collector.observability:4317
   endpoint: ""

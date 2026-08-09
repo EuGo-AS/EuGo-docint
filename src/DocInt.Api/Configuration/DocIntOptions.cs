@@ -161,6 +161,34 @@ public sealed class AdmissionOptions
     public int RetryAfterSeconds { get; set; }
 }
 
+/// <summary>
+/// The Prometheus scraping route. Nested under DocInt alongside the other knobs
+/// (DocInt__Metrics__Enabled from the environment).
+/// </summary>
+/// <remarks>
+/// A second metric reader beside the OTLP exporter, not a replacement for it: OTLP stays the
+/// production path (the exporter behind this route is a prerelease package, and upstream says so),
+/// and this exists because the OTLP path needs a collector that EuGo-infra does not yet run — a
+/// scrape is the only way to read the counters today. Nothing here can leak document content: the
+/// instruments carry the same low-cardinality tags they always did, never a filename or a hash.
+/// </remarks>
+public sealed class MetricsOptions
+{
+    public const string SectionName = "DocInt:Metrics";
+
+    /// <summary>
+    /// The off switch. It carries a default, like the other four, but for the opposite reason:
+    /// those default to true because false would silently drop a safety property, whereas a
+    /// missing route is loud — a 404 — and costs nothing while unscraped. True because a route
+    /// you have to redeploy to obtain is a route you do not have during the incident.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    // No initializer, matching the classes above: appsettings.json owns the shipped value.
+    /// <summary>Route the exposition is served on. Must start with '/'.</summary>
+    public string Path { get; set; } = "";
+}
+
 public static class OptionsExtensions
 {
     public static WebApplicationBuilder AddDocIntOptions(this WebApplicationBuilder builder)
@@ -188,6 +216,13 @@ public static class OptionsExtensions
             .Bind(builder.Configuration.GetSection(DuplicateTrackingOptions.SectionName))
             .Validate(o => o.Capacity > 0,
                 $"{DuplicateTrackingOptions.SectionName}:Capacity must be positive")
+            .ValidateOnStart();
+        builder.Services.AddOptions<MetricsOptions>()
+            .Bind(builder.Configuration.GetSection(MetricsOptions.SectionName))
+            // Only when it is on: a disabled route has no path to validate, so an operator who
+            // turns it off should not also have to keep a value they no longer use.
+            .Validate(o => !o.Enabled || (o.Path.StartsWith('/') && o.Path.Length > 1),
+                $"{MetricsOptions.SectionName}:Path must be a rooted route, e.g. /metrics")
             .ValidateOnStart();
         builder.Services.AddOptions<DocIntOptions>()
             .Bind(builder.Configuration.GetSection(DocIntOptions.SectionName))

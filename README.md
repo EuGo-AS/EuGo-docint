@@ -14,7 +14,8 @@ no document content in logs.
 optional `hints` part `{"<filename>":{"purpose":"bom|photo"}}`. Well-formed requests return `200`
 with per-file success or error, unless the pod's in-flight byte budget stays full for the whole
 queue window, which is a retryable `503` with `Retry-After`. Also: `GET /healthz`, `GET /info`,
-`GET /` (plain-text service banner `EuGo-docint`), OpenAPI JSON in Development.
+`GET /metrics` (Prometheus scrape), `GET /` (plain-text service banner `EuGo-docint`), OpenAPI JSON
+in Development.
 
 Limits (files per request, bytes per file, per-file timeout) are configurable — see
 [Configuration](#-configuration). Wire format: camelCase, lowercase enum values, null fields omitted.
@@ -240,6 +241,8 @@ truth, nothing to drift.
 | `AzureOpenAI:Endpoint` | `""` | `azure.openAI.endpoint` | `https://<resource>.openai.azure.com/` — the resource root only; the SDK appends `/openai/deployments/<name>/chat/completions`. Serves JPG/PNG |
 | `AzureOpenAI:ApiKey` | *unset — not in `appsettings.json`* | none, by design | As above: absent means `DefaultAzureCredential` |
 | `AzureOpenAI:DeploymentNameVision` | `model-eugo-docint-vision` | `azure.openAI.deploymentNameVision` | A deployment **alias**, not a model name — decoupled on purpose (EuGo-infra `docs/naming-convention.md`, `model-<project>-<role>`) so the model behind it can change without touching the service. Don't "correct" it to the model's name |
+| `DocInt:Metrics:Enabled` | `true` | `metrics.enabled` | The Prometheus scrape route. `false` removes it — a `404`, not an empty `200`, so a dashboard cannot read "off" as "no traffic" |
+| `DocInt:Metrics:Path` | `/metrics` | `metrics.path` | Route the exposition is served on; must be rooted, or the pod fails to boot. The chart's scrape annotation reads the same value |
 | `Serilog:MinimumLevel:Default` | `Information` (`Microsoft` and `System` at `Error`) | `extraEnv` | Log verbosity. Document *content* is never logged at any level |
 | `Kestrel:EndPoints:Http:Url` | `http://*:8090` | — (chart fixes the container port at 8090) | Listen address |
 | `ASPNETCORE_ENVIRONMENT` | `Production` in the container | `extraEnv` | `Development` additionally maps the OpenAPI document |
@@ -374,25 +377,32 @@ Deployment shape — no `appsettings.json` equivalent:
 | `replicaCount` | `2` | Used only when `autoscaling.enabled: false` |
 | `resources` | requests `250m` / `512Mi`, limit `2Gi` memory | Memory is generous because files are buffered whole; no CPU limit, since throttling costs more latency than it saves |
 | `service.port` | `8090` | ClusterIP port — no ingress, by design |
+| `metrics.enabled` / `.path` | `""` / `""` → the image's `true` and `/metrics` | Override the scrape route; empty leaves the image's defaults, like the `docint.*` limits |
+| `metrics.scrapeAnnotations` | `false` | Adds `prometheus.io/scrape`·`port`·`path` to pods. Inert today — nothing in the cluster reads them — and the keys need confirming against whatever scraper infra stands up |
 | `extraEnv` | `[]` | Verbatim `name`/`value` entries for keys with no first-class value above |
 
 ## 📊 Telemetry
 
-Traces, logs and metrics all leave over OTLP, and only when `otel.endpoint` is set — see
-[Application settings](#application-settings). Unset, everything below is collected in-process and
-discarded, which is the shipped default.
+Metrics leave two ways: pushed over OTLP when `otel.endpoint` is set, and pulled from `GET /metrics`
+by a Prometheus scrape. Traces and logs are OTLP-only. With no `otel.endpoint` and nothing scraping,
+everything below is collected in-process and discarded.
 
-**Metrics.** Seven instruments on the meter `EuGo.DocInt`:
+**Metrics.** Seven instruments on the meter `EuGo.DocInt`. The Prometheus column is what a scrape
+and therefore a dashboard sees — the exporter lowercases, replaces `.` with `_`, and appends the
+unit and the type suffix, except where the name already ends in the unit word:
 
-| Instrument | Type | Unit | Tags |
-| --- | --- | --- | --- |
-| `docint.pages_processed` | counter | pages | `kind` |
-| `docint.files_processed` | counter | files | `kind`, `outcome` |
-| `docint.bytes_processed` | counter | By | `kind` |
-| `docint.file_duration` | histogram | s | `kind`, `outcome` |
-| `docint.duplicate_files` | counter | files | `scope` |
-| `docint.rejected_requests` | counter | requests | `reason` |
-| `docint.shed_requests` | counter | requests | `reason` |
+| Instrument | Prometheus name | Type | Unit | Tags |
+| --- | --- | --- | --- | --- |
+| `docint.pages_processed` | `docint_pages_processed_pages_total` | counter | pages | `kind` |
+| `docint.files_processed` | `docint_files_processed_files_total` | counter | files | `kind`, `outcome` |
+| `docint.bytes_processed` | `docint_bytes_processed_bytes_total` | counter | By | `kind` |
+| `docint.file_duration` | `docint_file_duration_seconds` | histogram | s | `kind`, `outcome` |
+| `docint.duplicate_files` | `docint_duplicate_files_total` | counter | files | `scope` |
+| `docint.rejected_requests` | `docint_rejected_requests_total` | counter | requests | `reason` |
+| `docint.shed_requests` | `docint_shed_requests_total` | counter | requests | `reason` |
+
+Every scraped series also carries `otel_scope_name="EuGo.DocInt"`, and an instrument is absent from
+the exposition until it has recorded once — a fresh pod shows nothing until it has served traffic.
 
 `kind` is the six wire kinds plus `unknown`; `outcome` is `ok` plus the seven error codes;
 `scope` is `request` or `pod`; `reason` is a closed set per instrument. **Tags are deliberately
@@ -413,7 +423,25 @@ Four of these say something a dashboard will otherwise get wrong:
   `Retry-After` — as opposed to the malformed 400s in `rejected_requests`.
 
 There is deliberately no request-count instrument: `AddAspNetCoreInstrumentation` already emits
-`http.server.request.duration` with route and status for `POST /v1/extract`.
+`http.server.request.duration` with route and status for `POST /v1/extract`. The scrape route
+excludes itself from that instrument and from tracing, so it costs no series and no spans.
+
+**The scrape route.** `GET /metrics` serves the Prometheus text exposition, on by default
+(`DocInt:Metrics:Enabled`, path `DocInt:Metrics:Path`). It exists because the OTLP path needs a
+collector EuGo-infra does not run yet, so until it does this is the only way to read the counters:
+
+```bash
+kubectl port-forward svc/eugo-docint 8090:8090
+curl -s localhost:8090/metrics | grep docint_
+```
+
+Two caveats worth knowing before you build on it. The exporter behind it
+(`OpenTelemetry.Exporter.Prometheus.AspNetCore`) has never shipped a stable version — it tracks an
+experimental part of the spec and its own README recommends OTLP for production — so **OTLP stays
+the primary path** and this is an additive second reader, removable without touching anything else.
+And `metrics.scrapeAnnotations` in the chart is off by default: nothing in the cluster reads
+`prometheus.io/*` today, and the keys need confirming against whatever scraper infra actually
+stands up (Azure Monitor managed Prometheus takes its scrape config from its own ConfigMap).
 
 **Traces.** One activity per file, `docint.extract_file`, tagged `docint.kind`,
 `docint.size_bytes` and `docint.outcome`. No filenames in trace tags.

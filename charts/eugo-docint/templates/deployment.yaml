@@ -18,6 +18,14 @@ spec:
         {{- if .Values.serviceAccount.azureClientId }}
         azure.workload.identity/use: "true"
         {{- end }}
+      {{- if .Values.metrics.scrapeAnnotations }}
+      {{- /* The path is read from the same value that sets DocInt__Metrics__Path below, so the two
+             cannot drift into an annotation pointing at a route the pod does not serve. */}}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8090"
+        prometheus.io/path: {{ .Values.metrics.path | default "/metrics" | quote }}
+      {{- end }}
     spec:
       serviceAccountName: {{ include "eugo-docint.serviceAccountName" . }}
       securityContext:
@@ -93,6 +101,16 @@ spec:
           {{- if ne (toString .Values.docint.admission.enabled) "" }}
           {{- $env = append $env (dict "name" "DocInt__Admission__Enabled" "value" (toString .Values.docint.admission.enabled)) }}
           {{- end }}
+          {{- end }}
+          {{- /* Same not-`with` reasoning as the gate above: false is "empty" to Helm, so
+                 --set metrics.enabled=false would omit the var and leave the route silently ON. */}}
+          {{- if not (kindIs "invalid" .Values.metrics.enabled) }}
+          {{- if ne (toString .Values.metrics.enabled) "" }}
+          {{- $env = append $env (dict "name" "DocInt__Metrics__Enabled" "value" (toString .Values.metrics.enabled)) }}
+          {{- end }}
+          {{- end }}
+          {{- with .Values.metrics.path }}
+          {{- $env = append $env (dict "name" "DocInt__Metrics__Path" "value" .) }}
           {{- end }}
           {{- /* OTEL_SERVICE_NAME is derived rather than user-supplied: without it every release
                  reports as the assembly name (DocInt.Api) and two namespaces cannot be told

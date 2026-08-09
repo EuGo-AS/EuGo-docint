@@ -8,6 +8,7 @@ using DocInt.Api.Telemetry;
 using DocInt.Api.Validation;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using OpenTelemetry.Instrumentation.AspNetCore;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using Serilog;
@@ -32,6 +33,28 @@ try
     builder.Services.AddSingleton<DuplicateFileTracker>();
     builder.Services.ConfigureOpenTelemetryTracerProvider(t => t.AddSource(DocIntTelemetry.SourceName));
     builder.Services.ConfigureOpenTelemetryMeterProvider(m => m.AddMeter(DocIntTelemetry.MeterName));
+
+    // The Prometheus scrape route, read straight from configuration because the exporter has to be
+    // registered on the MeterProvider before Build() — well before IOptions is resolvable.
+    var metrics = new MetricsOptions();
+    builder.Configuration.GetSection(MetricsOptions.SectionName).Bind(metrics);
+    if (metrics.Enabled)
+    {
+        builder.Services.ConfigureOpenTelemetryMeterProvider(m => m.AddPrometheusExporter(o =>
+            // No cached body. The exporter's default holds a rendered response for a few hundred
+            // milliseconds to absorb scrape storms; nothing scrapes this hard, and a stale answer
+            // during an incident is worth more than the CPU it saves.
+            o.ScrapeResponseCacheDurationMilliseconds = 0));
+        // A scrape every 15s would otherwise mint a span every 15s, forever. Same reasoning as the
+        // health endpoints in ServiceDefaults, applied here because only this file knows the path.
+        // Composes with that filter rather than replacing it — AddServiceDefaults registered first.
+        builder.Services.Configure<AspNetCoreTraceInstrumentationOptions>(o =>
+        {
+            var inherited = o.Filter;
+            o.Filter = context => !context.Request.Path.StartsWithSegments(metrics.Path)
+                && (inherited is null || inherited(context));
+        });
+    }
     builder.WebHost.ConfigureKestrel((context, kestrel) =>
     {
         var docint = new DocIntOptions();
@@ -98,15 +121,24 @@ try
 
     app.MapExtract();
 
+    if (metrics.Enabled)
+    {
+        // DisableHttpMetrics keeps the scrape out of http.server.request.duration — without it the
+        // route reports on itself, one series per scrape interval that says nothing.
+        app.MapPrometheusScrapingEndpoint(metrics.Path).DisableHttpMetrics();
+    }
+
     var version = typeof(Program).Assembly
         .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
         .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
         .FirstOrDefault()?.InformationalVersion ?? "unknown";
+    string[] endpoints = ["/", "/v1/extract", "/healthz", "/alive", "/info",
+        .. metrics.Enabled ? new[] { metrics.Path } : []];
     app.MapGet("/info", () => Results.Json(new
     {
         service = "EuGo-docint",
         version,
-        endpoints = new[] { "/", "/v1/extract", "/healthz", "/alive", "/info" }
+        endpoints
     }));
 
     // A bare service banner, so hitting the root in a browser or a curl smoke test names the
