@@ -58,6 +58,7 @@ public class OptionsTests
     [InlineData("DocInt:DuplicateTracking:Capacity")]
     [InlineData("DocInt:Admission:BudgetBytes")]
     [InlineData("DocInt:Admission:QueueTimeoutSeconds")]
+    [InlineData("DocInt:Admission:RetryAfterSeconds")]
     public void Zero_limit_fails_host_startup(string key)
     {
         var ex = Assert.Throws<OptionsValidationException>(() => Validate((key, "0")));

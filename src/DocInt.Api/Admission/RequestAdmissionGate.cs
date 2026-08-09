@@ -20,7 +20,9 @@ public sealed class RequestAdmissionGate : IDisposable
 {
     private const long Mebibyte = 1024 * 1024;
 
-    // Null when disabled, which is also what makes the disabled path allocation-free.
+    // Null when disabled: the limiter itself is never constructed on that path. AcquireAsync's
+    // disabled branch still allocates an AdmissionLease, but it wraps a null RateLimitLease and is
+    // a no-op to dispose — the allocation that is avoided is the limiter and everything it queues.
     private readonly ConcurrencyLimiter? _limiter;
     private readonly TimeSpan _queueTimeout;
 

@@ -11,8 +11,10 @@ no document content in logs.
 ## 🔌 API
 
 `POST /v1/extract` — `multipart/form-data`: N file parts named `files` (pdf/docx/pptx/html/xlsx/jpg/png),
-optional `hints` part `{"<filename>":{"purpose":"bom|photo"}}`. Well-formed requests always return
-`200` with per-file success or error. Also: `GET /healthz`, `GET /info`, OpenAPI JSON in Development.
+optional `hints` part `{"<filename>":{"purpose":"bom|photo"}}`. Well-formed requests return `200`
+with per-file success or error, unless the pod's in-flight byte budget stays full for the whole
+queue window, which is a retryable `503` with `Retry-After`. Also: `GET /healthz`, `GET /info`,
+OpenAPI JSON in Development.
 
 Limits (files per request, bytes per file, per-file timeout) are configurable — see
 [Configuration](#-configuration). Wire format: camelCase, lowercase enum values, null fields omitted.
@@ -103,10 +105,11 @@ A corrupt or unsupported file never fails the request; it gets its own `error` e
 Error codes: `unsupported_type` · `too_large` · `empty_file` · `corrupt` · `timeout` ·
 `engine_error` · `engine_unconfigured`.
 
-### Request-level 400
+### Request-level 400 and 503
 
-Only a malformed *request* (not a bad file) returns non-200 — no `files` parts, body not
-multipart, too many files, oversized `hints` — as an RFC 7807 problem:
+A malformed *request* (not a bad file) returns a `400` — no `files` parts, body not multipart,
+too many files, file parts totalling more than `MaxRequestFileBytes`, oversized `hints` — as an
+RFC 7807 problem:
 
 ```json
 {
@@ -115,6 +118,11 @@ multipart, too many files, oversized `hints` — as an RFC 7807 problem:
   "status": 400
 }
 ```
+
+A well-formed request can still get a `503`: the pod reserves its admission budget before
+reading the body, and if that budget stays full for the whole queue window the request is shed
+rather than buffered alongside whatever already holds it. The response carries `Retry-After` and
+is safe to retry. See `DocInt:Admission:*` in [Configuration](#-configuration).
 
 ## ▶️ Run
 
@@ -215,11 +223,13 @@ truth, nothing to drift.
 Both `ApiKey` keys are bound by the options classes but deliberately absent from the committed
 `appsettings.json` — they exist only in user-secrets or the environment.
 
-**Derived, not settable.** Kestrel's max request body is `MaxFileBytes × MaxFilesPerRequest + 1 MiB`
-(≈1.6 GB at the defaults), so raising a limit raises it automatically — there is no separate
-request-size knob.
+**Derived, not directly settable.** Kestrel's max request body is `MaxRequestFileBytes + 1 MiB`
+(≈201 MiB at the defaults) — `DocInt:MaxRequestFileBytes` **is** the request-size knob; raise it
+and Kestrel's ceiling follows automatically. This replaced `MaxFileBytes × MaxFilesPerRequest`
+(32 × 50 MiB ≈ 1.56 GiB), the pathological product of the two per-file caps — a body 78% the size
+of the container's entire memory limit, which Kestrel used to be configured to accept.
 
-**Validated at boot, not on first request.** All four `DocInt:*` values must be positive, both
+**Validated at boot, not on first request.** All five `DocInt:*` values must be positive, both
 endpoints must be absolute URIs, and `DeploymentNameVision` is required once `AzureOpenAI:Endpoint`
 is set; a violation stops the host at startup. The service then logs its whole effective
 configuration once, with secret-shaped keys valued `***redacted***` — the fastest way to confirm

@@ -225,6 +225,20 @@ compares against an absolute number that can be reasoned about against the 2Gi l
 occupied pod sits near 1224Mi live, so the trigger fires *before* saturation rather than at it,
 leaving headroom under the 2Gi limit for uncollected garbage.
 
+**Correction: 1224Mi under-counts simultaneous transient allocation, by roughly 30%.**
+`MultipartExtractRequestReader.BufferAsync` grows an unsized `MemoryStream` by doubling — 64 MiB of
+capacity to hold a 50 MiB part — and then calls `ToArray()` while that buffer is still live, so the
+file being buffered peaks near 64 MiB (the `MemoryStream`) + 50 MiB (the `ToArray()` copy) rather
+than 50 MiB, on top of whatever earlier files in the same request already retained. A 201 MiB
+request split 4×50 MiB therefore peaks near **264 MiB**, not 201 MiB — about 1.29 GiB at 5
+concurrent requests rather than the 1.0 GiB the arithmetic above implies. Total RSS still lands
+near 1.5 GiB against the 2Gi limit, so headroom is closer to ~25% than the ~40% the current
+arithmetic implies. This is *simultaneous liveness* — bytes live and counted at the same instant,
+before any lease is released — distinct from the garbage-lag caveat in §1, which is about RSS
+trailing a lease that has already been released. The obvious mitigation, not part of this change:
+pre-size `BufferAsync`'s `MemoryStream` to the part's cap (`MaxFileBytes`) instead of letting it
+grow by doubling, which removes the extra live copy.
+
 **Both metrics are kept** because the two paths saturate differently: XLSX runs through the
 synchronous `SpreadsheetEngine` and is CPU/thread-pool bound, everything else is Azure-bound.
 `autoscaling/v2` computes a recommendation per metric and takes the maximum.

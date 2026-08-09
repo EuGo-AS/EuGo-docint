@@ -18,7 +18,7 @@ autoscaling:
   # scheduling hint rather than the real ceiling, so a pod holding 900Mi would read as 176% and peg
   # the HPA at maxReplicas immediately. 900Mi is baseline (~200Mi) plus about two thirds of the
   # 1 GiB admission budget, so it fires before saturation with headroom under the 2Gi limit.
-  # It is a considered starting value, not a derived one -- see the design spec S7/S8 -- and empty
+  # It is a considered starting value, not a derived one -- see the design spec §7/§8 -- and empty
   # omits the memory metric entirely, which is the documented back-out.
   targetMemoryAverageValue: 900Mi
   # Memory is sticky: the pod runs Server GC with no CPU limit, so heaps follow the node's core
