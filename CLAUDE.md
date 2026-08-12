@@ -6,10 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **EuGo-docint** (*EuGo Document Intelligence*) — an independent, **stateless, cluster-internal document-understanding service**: files in → Markdown, tables with typed numeric cells, image descriptions, per-file warnings/errors out. It renders no compliance judgment and stores nothing. It is called by EuGo-Web (and later EuGo-mcp) over `POST /v1/extract` on a shared AKS cluster, and is never exposed via ingress.
 
-The build plan and spec live in the sibling Obsidian vault; the approved service design lives in this repo:
+**Planning lives in `openspec/`.** All new work is proposed, specced, and tracked there — start with
+`openspec list` to see active changes and `openspec new change "<name>"` to open one (never hand-create
+a change directory; the CLI writes required metadata). Project context and the per-artifact rules that
+bind every proposal, spec, design, and task list are in `openspec/config.yaml`.
 
-- Service design (authoritative for T1–T6): `docs/superpowers/specs/2026-07-19-eugo-docint-design.md`
-- Plan (task level, T1–T8): `../EuGo-Obsidian/plans/eugo-docint-plan.md`
+The documents below are **historical records of work already shipped**. Read them for rationale — they
+explain why things are the way they are, and the designs carry "deliberately deferred" ledgers worth
+consulting before re-deriving an alternative. Do not update them, and do not add new ones:
+
+- Service design as shipped for T1–T6: `docs/superpowers/specs/2026-07-19-eugo-docint-design.md`, alongside the later dated designs and plans under `docs/superpowers/`
+- Plan (task level, T1–T8), in the sibling Obsidian vault: `../EuGo-Obsidian/plans/eugo-docint-plan.md`
 - Spec (Decision 12): `../EuGo-Obsidian/plans/Plan-A-Step-1/12-decision-eugo-docint.md` — **amended 2026-07-19**: the "no Aspire AppHost" dev-loop note is superseded; the solution uses .NET Aspire (AppHost + ServiceDefaults) per user directive.
 
 Sibling repos: `../EuGo-mcp` (conventions to mirror — its `CLAUDE.md` is the reference), `../EuGo-web` (the consumer), `../EuGo-infra`.

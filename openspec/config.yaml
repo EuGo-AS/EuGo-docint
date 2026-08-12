@@ -1,0 +1,79 @@
+schema: spec-driven
+
+# Project context — shown to AI when creating any artifact.
+# Invariants only. No counts, no file inventories, no class-name lists: those
+# drift within two changes and turn this file into a stale second CLAUDE.md.
+# Operational runbook material (Azure network access, golden-fixture
+# regeneration, local dev loop) lives in CLAUDE.md and never belongs here —
+# it does not change what a spec says.
+context: |
+  EuGo-docint (EuGo Document Intelligence) is a stateless, cluster-internal
+  document-understanding service: files in → Markdown, tables with typed numeric
+  cells, image descriptions, per-file warnings/errors out. It renders no
+  compliance judgment and stores nothing.
+
+  Boundary: called by EuGo-Web (later EuGo-mcp) over POST /v1/extract on a shared
+  AKS cluster. Never exposed via ingress. Sibling repos: EuGo-mcp (conventions to
+  mirror), EuGo-web (the consumer), EuGo-infra (owns cluster provisioning and
+  release execution).
+
+  Stack: .NET 10 · ASP.NET Core minimal API · .NET Aspire (AppHost +
+  ServiceDefaults) · Azure.AI.DocumentIntelligence (Layout → Markdown) · OpenXML
+  (XLSX typed cells) · Azure OpenAI Foundry utility model (image description) ·
+  OTel + Serilog · Docker → ACR → AKS. The Helm chart lives in this repo under
+  charts/eugo-docint.
+
+  Hard constraints — these bind every change, and a proposal that violates one is
+  wrong regardless of its merits:
+  - Facts, never meaning. Document-level language only: no EvidenceBundle, no
+    categories, no compliance or classification semantics anywhere in the API,
+    the code, or a spec's wording.
+  - Stateless and storage-free. Bytes in, results out. No document persistence;
+    docint must never grow into a document store.
+  - No document content in logs or telemetry. Filenames and sizes are fine,
+    content never.
+  - Per-file success/failure inside a 200. One corrupt file yields its own error
+    entry, never a failed call. Request-level errors (400) are for malformed
+    requests only.
+  - EU-region Azure resources only; Workload Identity on AKS; never secrets in
+    source or tracked config.
+
+  Contract v1 is frozen. /v1 is internal-may-change until EuGo-mcp becomes the
+  second consumer; until then a breaking change is a coordination cost with
+  EuGo-Web, not an impossibility — but it is always a deliberate decision, never
+  a side effect.
+
+  Verification gate, in this order, against src/DocInt.slnx (not the repo root):
+  restore → build --no-restore → test --no-build. The --no-restore/--no-build
+  flags keep the signal honest — a test failure must be a test failure, not a
+  stale build. This gate is what "done" means for any task.
+
+  Workflow: cut a per-step branch → failing test first → run the gate → merge to
+  main once green → delete the branch. Never develop directly on main; never
+  merge red.
+
+  Planning system: openspec/ is the forward path for all new work. The dated
+  documents under docs/superpowers/{plans,specs}/ are historical records of work
+  already shipped — read them for rationale, never update them, and do not add
+  new ones.
+
+  Capability paths: kebab-case, named for an observable behavior seam rather
+  than a code folder — the specs describe what the service does, not how
+  DocInt.Api is decomposed. Follow whatever organization already exists under
+  openspec/specs/; the set grows one change at a time and is not pre-declared.
+
+# Per-artifact rules — each applies only when writing that artifact.
+rules:
+  proposal:
+    - Name the consumer-visible effect, not the implementation. If nothing a caller can observe changes, say so and set skip_specs in .openspec.yaml rather than inventing a requirement to satisfy validation.
+    - State explicitly whether the change touches the frozen /v1 contract, and if so what EuGo-Web must do about it.
+  specs:
+    - Write requirements in document-level factual language. Compliance, classification, and category vocabulary is out of bounds even when describing a caller's use of the output.
+    - Every requirement carries at least one WHEN/THEN scenario. A requirement with no scenario is not done.
+    - Scenarios covering /v1/extract must include the per-file failure path, not only the success path — a corrupt or unsupported file is normal traffic, not an edge case.
+  design:
+    - Include a "Deliberately deferred" section recording what was raised and set aside, with the reasoning. This is the one habit worth carrying over from the superseded docs/superpowers specs — it stops the same alternatives being re-derived next time.
+    - "Call out any change to the pod security context or the chart's volume mounts as needing verification on a real pod. helm lint and helm template cannot catch that class of regression, because the read-only root filesystem comes only from the chart — golden tests and the Docker build both pass on a writable filesystem."
+  tasks:
+    - Each task group ends at the green gate — restore, build --no-restore, test --no-build against src/DocInt.slnx. A group that ends with code written but unverified is not a group.
+    - Never skip or weaken a test because infrastructure is missing (no Azure credentials, no Docker, no cluster). Run the subset that executes and list what was blocked.
