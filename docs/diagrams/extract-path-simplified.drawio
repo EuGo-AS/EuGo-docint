@@ -1,0 +1,197 @@
+<mxfile host="Electron">
+  <diagram name="POST /v1/extract" id="extract-path-1">
+    <mxGraphModel dx="1916" dy="1228" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="2336" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=22;fontStyle=1" value="Document Intelligence Service — POST /v1/extract call workflow, by file type" vertex="1">
+          <mxGeometry height="34" width="900" x="40" y="16" as="geometry" />
+        </mxCell>
+        <mxCell id="caller" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="Calling service&lt;br&gt;&lt;i&gt;cluster-internal only, never via ingress&lt;/i&gt;" vertex="1">
+          <mxGeometry height="50" width="280" x="480" y="110" as="geometry" />
+        </mxCell>
+        <mxCell id="post" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&lt;b&gt;POST /v1/extract&lt;/b&gt;&lt;br&gt;multipart/form-data&lt;br&gt;N parts named &#39;files&#39; + optional &#39;hints&#39; part" vertex="1">
+          <mxGeometry height="60" width="280" x="480" y="192" as="geometry" />
+        </mxCell>
+        <mxCell id="endpoint" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="ExtractEndpoint.Handle" vertex="1">
+          <mxGeometry height="50" width="280" x="480" y="284" as="geometry" />
+        </mxCell>
+        <mxCell id="reader" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="MultipartExtractRequestReader.ReadAsync&lt;br&gt;&lt;i&gt;streams the body, buffers in memory — nothing touches disk&lt;/i&gt;" vertex="1">
+          <mxGeometry height="60" width="280" x="480" y="366" as="geometry" />
+        </mxCell>
+        <mxCell id="d_wellformed" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="request itself&lt;br&gt;well-formed?" vertex="1">
+          <mxGeometry height="80" width="240" x="500" y="462" as="geometry" />
+        </mxCell>
+        <mxCell id="e400" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left;verticalAlign=top;spacingLeft=10;spacingTop=6;" value="&lt;b&gt;400 Problem — &quot;Malformed extract request&quot;&lt;/b&gt;" vertex="1">
+          <mxGeometry height="44" width="270" x="820" y="480" as="geometry" />
+        </mxCell>
+        <mxCell id="buffer" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="buffer the part&lt;br&gt;&lt;i&gt;stop at MaxFileBytes (50 MiB) —&lt;br&gt;an oversized part is never fully buffered&lt;/i&gt;" vertex="1">
+          <mxGeometry height="66" width="230" x="130" y="648" as="geometry" />
+        </mxCell>
+        <mxCell id="detect" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="&lt;b&gt;FileKindDetector.Detect&lt;/b&gt;&lt;br&gt;magic bytes → claimed content-type → extension" vertex="1">
+          <mxGeometry height="66" width="250" x="470" y="648" as="geometry" />
+        </mxCell>
+        <mxCell id="fileitem" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&lt;b&gt;FileItem&lt;/b&gt; { Index, Name, Bytes,&lt;br&gt;Kind?, ImageMediaType?, Purpose?,&lt;br&gt;Warnings[], Error? }" vertex="1">
+          <mxGeometry height="66" width="240" x="850" y="648" as="geometry" />
+        </mxCell>
+        <mxCell id="prevalid_err" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="&lt;b&gt;Error set here — no engine ever runs&lt;/b&gt;&lt;br&gt;too_large · empty_file · unsupported_type" vertex="1">
+          <mxGeometry height="60" width="230" x="380" y="772" as="geometry" />
+        </mxCell>
+        <mxCell id="legend" parent="1" style="shape=note;size=16;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;" value="&lt;b&gt;FileKindDetector — first match wins&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;font face=&quot;Courier New&quot;&gt;%PDF&lt;/font&gt; → &lt;b&gt;pdf&lt;/b&gt;&lt;br&gt;&lt;font face=&quot;Courier New&quot;&gt;89 50 4E 47 0D 0A 1A 0A&lt;/font&gt; → &lt;b&gt;image&lt;/b&gt; (png)&lt;br&gt;&lt;font face=&quot;Courier New&quot;&gt;FF D8 FF&lt;/font&gt; → &lt;b&gt;image&lt;/b&gt; (jpeg)&lt;br&gt;&lt;font face=&quot;Courier New&quot;&gt;PK&lt;/font&gt; (zip) → claimed type, else extension&lt;br&gt;    → &lt;b&gt;docx&lt;/b&gt; / &lt;b&gt;xlsx&lt;/b&gt; / &lt;b&gt;pptx&lt;/b&gt; — else null&lt;br&gt;text/html, .html/.htm, or &lt;font face=&quot;Courier New&quot;&gt;&amp;lt;!doctype&lt;/font&gt;/&lt;font face=&quot;Courier New&quot;&gt;&amp;lt;html&lt;/font&gt;&lt;br&gt;    → &lt;b&gt;html&lt;/b&gt;&lt;br&gt;otherwise → null → &lt;font color=&quot;#b85450&quot;&gt;unsupported_type&lt;/font&gt;&lt;br&gt;&lt;br&gt;&lt;i&gt;claimed type ≠ detected type adds a warning,&lt;br&gt;never an error — the bytes win.&lt;/i&gt;" vertex="1">
+          <mxGeometry height="240" width="370" x="40" y="890" as="geometry" />
+        </mxCell>
+        <mxCell id="service" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&lt;b&gt;ExtractionService.ExtractAsync&lt;/b&gt;&lt;br&gt;Parallel.ForEachAsync&lt;br&gt;MaxDegreeOfParallelism = MaxParallelism (4)&lt;br&gt;&lt;i&gt;results are written by file.Index — request order is preserved&lt;/i&gt;" vertex="1">
+          <mxGeometry height="80" width="300" x="530" y="900" as="geometry" />
+        </mxCell>
+        <mxCell id="perfile" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="per file: Activity &quot;docint.extract_file&quot;" vertex="1">
+          <mxGeometry height="44" width="300" x="530" y="1016" as="geometry" />
+        </mxCell>
+        <mxCell id="router" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="&lt;b&gt;EngineRouter.RouteAsync&lt;/b&gt;&lt;br&gt;Dictionary&amp;lt;FileKind, IExtractionEngine&amp;gt;, built from engine.Kinds&lt;br&gt;linked CTS · CancelAfter(PerFileTimeoutSeconds = 100 s)" vertex="1">
+          <mxGeometry height="80" width="340" x="510" y="1140" as="geometry" />
+        </mxCell>
+        <mxCell id="layout_eng" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" value="&lt;b&gt;LayoutEngine&lt;/b&gt;&lt;br&gt;Kinds: pdf · docx · pptx · html&lt;br&gt;&lt;i&gt;four kinds, one engine, one call&lt;/i&gt;" vertex="1">
+          <mxGeometry height="70" width="280" x="100" y="1300" as="geometry" />
+        </mxCell>
+        <mxCell id="sheet_eng" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="&lt;b&gt;SpreadsheetEngine&lt;/b&gt;&lt;br&gt;Kinds: xlsx&lt;br&gt;&lt;i&gt;synchronous — Task.FromResult&lt;/i&gt;" vertex="1">
+          <mxGeometry height="70" width="280" x="540" y="1300" as="geometry" />
+        </mxCell>
+        <mxCell id="vision_eng" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" value="&lt;b&gt;VisionEngine&lt;/b&gt;&lt;br&gt;Kinds: image (png / jpeg)&lt;br&gt;&lt;i&gt;factual observations only&lt;/i&gt;" vertex="1">
+          <mxGeometry height="70" width="280" x="980" y="1300" as="geometry" />
+        </mxCell>
+        <mxCell id="di_client" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" value="AzureLayoutAnalysisClient.AnalyzeAsync&lt;br&gt;DocumentIntelligenceClient&lt;br&gt;model &quot;prebuilt-layout&quot;&lt;br&gt;OutputContentFormat.Markdown&lt;br&gt;WaitUntil.Completed &lt;i&gt;(long-running op)&lt;/i&gt;" vertex="1">
+          <mxGeometry height="90" width="280" x="100" y="1410" as="geometry" />
+        </mxCell>
+        <mxCell id="openxml" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="OpenXML — SpreadsheetDocument.Open(MemoryStream)&lt;br&gt;typed cell values read straight from the stored XML,&lt;br&gt;never re-parsed display text&lt;br&gt;+ per-sheet Markdown rendering" vertex="1">
+          <mxGeometry height="90" width="280" x="540" y="1410" as="geometry" />
+        </mxCell>
+        <mxCell id="aoai_client" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" value="AzureVisionChatClient.DescribeImageAsync&lt;br&gt;ChatClient.CompleteChatAsync&lt;br&gt;VisionPrompt.System + image content part&lt;br&gt;deployment AzureOpenAI:DeploymentNameVision" vertex="1">
+          <mxGeometry height="90" width="280" x="980" y="1410" as="geometry" />
+        </mxCell>
+        <mxCell id="azure_di" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0078D4;strokeColor=#005A9E;fontColor=#ffffff;" value="&lt;b&gt;Azure AI Document Intelligence&lt;/b&gt;&lt;br&gt;EU region · private endpoint" vertex="1">
+          <mxGeometry height="60" width="280" x="100" y="1540" as="geometry" />
+        </mxCell>
+        <mxCell id="no_net" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;dashed=1;" value="&lt;b&gt;no network call at all&lt;/b&gt;&lt;br&gt;&lt;i&gt;the Azure-free path — keeps working while both&lt;br&gt;Azure endpoints are unreachable&lt;/i&gt;" vertex="1">
+          <mxGeometry height="60" width="280" x="540" y="1540" as="geometry" />
+        </mxCell>
+        <mxCell id="azure_aoai" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0078D4;strokeColor=#005A9E;fontColor=#ffffff;" value="&lt;b&gt;Azure OpenAI — Foundry utility model&lt;/b&gt;&lt;br&gt;EU region · private endpoint" vertex="1">
+          <mxGeometry height="60" width="280" x="980" y="1540" as="geometry" />
+        </mxCell>
+        <mxCell id="tmp_note" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=10;fontColor=#666666" value="&lt;i&gt;OpenXML still spills package parts to /tmp even though the read is&lt;br&gt;from a MemoryStream — the chart&#39;s writable /tmp mount is load-bearing&lt;br&gt;under readOnlyRootFilesystem: true.&lt;/i&gt;" vertex="1">
+          <mxGeometry height="46" width="360" x="500" y="1610" as="geometry" />
+        </mxCell>
+        <mxCell id="out_layout" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" value="&lt;b&gt;markdown&lt;/b&gt;&lt;br&gt;pagesProcessed = page count&lt;br&gt;+ service warnings" vertex="1">
+          <mxGeometry height="66" width="280" x="100" y="1680" as="geometry" />
+        </mxCell>
+        <mxCell id="out_sheet" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" value="&lt;b&gt;tables[] (typed rows) + markdown&lt;/b&gt;&lt;br&gt;pagesProcessed = sheet count&lt;br&gt;&lt;i&gt;numeric fidelity is the point&lt;/i&gt;" vertex="1">
+          <mxGeometry height="66" width="280" x="540" y="1680" as="geometry" />
+        </mxCell>
+        <mxCell id="out_vision" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" value="&lt;b&gt;imageDescription&lt;/b&gt;&lt;br&gt;pagesProcessed = 1" vertex="1">
+          <mxGeometry height="66" width="280" x="980" y="1680" as="geometry" />
+        </mxCell>
+        <mxCell id="result" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&lt;b&gt;results[file.Index] = FileResult&lt;/b&gt;&lt;br&gt;one entry per input file, in request order" vertex="1">
+          <mxGeometry height="60" width="320" x="520" y="1810" as="geometry" />
+        </mxCell>
+        <mxCell id="resp200" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="&lt;b&gt;200 OK&lt;/b&gt;&lt;br&gt;{ files: [ { name, kind, markdown?, tables?,&lt;br&gt;imageDescription?, warnings[], error? } ] }" vertex="1">
+          <mxGeometry height="70" width="320" x="520" y="1920" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" edge="1" parent="1" source="caller" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="post">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="post" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="endpoint">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="endpoint" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="reader">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="reader" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="d_wellformed">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="d_wellformed" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b85450;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="e400" value="no">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="d_wellformed" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="buffer" value="yes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="buffer" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="detect">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="detect" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;" target="fileitem" value="kind + imageMediaType">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" edge="1" parent="1" source="buffer" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b85450;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="prevalid_err" value="over the cap, or 0 bytes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" edge="1" parent="1" source="detect" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b85450;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="prevalid_err" value="kind = null">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" edge="1" parent="1" source="legend" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#999999;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0;entryY=1;entryDx=0;entryDy=0;" target="detect">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="225" y="830" />
+              <mxPoint x="360" y="830" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e13" edge="1" parent="1" source="fileitem" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="service" value="reader returns IReadOnlyList&amp;lt;FileItem&amp;gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e14" edge="1" parent="1" source="service" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="perfile">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e16" edge="1" parent="1" source="perfile" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="router">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="680" y="1100" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e19" edge="1" parent="1" source="router" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontStyle=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="layout_eng" value="pdf · docx · pptx · html">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e20" edge="1" parent="1" source="router" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontStyle=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="sheet_eng" value="xlsx">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e21" edge="1" parent="1" source="router" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontStyle=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="vision_eng" value="image">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e23" edge="1" parent="1" source="layout_eng" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="di_client">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e24" edge="1" parent="1" source="sheet_eng" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="openxml">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e25" edge="1" parent="1" source="vision_eng" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="aoai_client">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e26" edge="1" parent="1" source="di_client" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;" target="azure_di" value="HTTPS">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e27" edge="1" parent="1" source="openxml" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;" target="no_net">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e28" edge="1" parent="1" source="aoai_client" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;" target="azure_aoai" value="HTTPS">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e29" edge="1" parent="1" source="azure_di" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="out_layout">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e30" edge="1" parent="1" source="no_net" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.02;exitY=1;exitDx=0;exitDy=0;entryX=0.02;entryY=0;entryDx=0;entryDy=0;" target="out_sheet">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e31" edge="1" parent="1" source="azure_aoai" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="out_vision">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e32" edge="1" parent="1" source="out_layout" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="result">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e33" edge="1" parent="1" source="out_sheet" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="result">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e34" edge="1" parent="1" source="out_vision" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="result">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e36" edge="1" parent="1" source="result" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;" target="resp200" value="Results.Json(response, DocIntJson.Options)&lt;br&gt;&lt;i&gt;camelCase · lowercase enums · nulls omitted&lt;/i&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
