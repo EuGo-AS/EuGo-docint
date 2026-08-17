@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Document Intelligence Service — Overview and High-Level Design</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+         line-height: 1.55; color: #172b4d; max-width: 62rem; margin: 2rem auto; padding: 0 1.5rem; }
+  h1 { font-size: 1.9rem; margin: 0 0 .4rem; }
+  h2 { font-size: 1.35rem; margin: 2.2rem 0 .6rem; border-bottom: 1px solid #dfe1e6; padding-bottom: .3rem; }
+  h3 { font-size: 1.1rem; margin: 1.6rem 0 .4rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #dfe1e6; padding: .45rem .6rem; text-align: left; vertical-align: top; font-size: .93rem; }
+  th { background: #f4f5f7; font-weight: 600; }
+  pre { background: #f4f5f7; border: 1px solid #dfe1e6; padding: .8rem 1rem; overflow-x: auto;
+        font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85rem; line-height: 1.4; }
+  code { background: #f4f5f7; padding: .1rem .3rem; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .88em; }
+  pre code { background: none; padding: 0; }
+  blockquote { border-left: 3px solid #4c9aff; background: #deebff; margin: 1rem 0; padding: .6rem 1rem; }
+  ul, ol { padding-left: 1.4rem; }
+  .lead { font-size: 1.05rem; color: #42526e; }
+</style>
+</head>
+<body>
+
+<h1>Document Intelligence Service</h1>
+<p class="lead">A stateless, cluster-internal service that turns business documents into Markdown,
+typed tables and factual image descriptions. Files in, structured text out — nothing is stored,
+nothing is interpreted.</p>
+
+<h2>1. Purpose</h2>
+
+<h3>What it is</h3>
+<p>The Document Intelligence Service is a single-purpose HTTP service. A caller posts one or more
+files to it; the service detects what each file actually is, runs it through the extraction path
+appropriate to that file type, and returns Markdown (plus typed table rows for spreadsheets, or a
+description for images) in one synchronous response.</p>
+
+<p>It exists so that every consumer in the platform gets <em>the same</em> text out of a document.
+Rather than each application embedding its own PDF parser, its own spreadsheet reader and its own
+vision prompt — and drifting apart in what they produce — document understanding is solved once,
+behind one contract.</p>
+
+<h3>What it can be used for</h3>
+<ul>
+  <li><strong>Feeding documents to an LLM or agent.</strong> Markdown is the format language models
+      read best. A PDF, a Word file and a web page all come back in the same shape, so downstream
+      prompts do not need per-format handling.</li>
+  <li><strong>Extracting figures from spreadsheets without losing precision.</strong> Numbers come
+      back as JSON numbers, not as re-parsed display text — quantities, prices and dates survive
+      the trip intact.</li>
+  <li><strong>Making scanned documents searchable.</strong> Scanned PDFs go through OCR on the same
+      path as digital ones; the caller does not have to know which it had.</li>
+  <li><strong>Turning photographs into text records.</strong> Images are described in terms of what
+      is visibly present — objects, markings, labels, printed text, materials, colours — so a photo
+      can be indexed and searched alongside the documents it came with.</li>
+  <li><strong>Batch ingestion.</strong> A mixed batch of up to 32 files is processed in one call,
+      with results returned in request order.</li>
+</ul>
+
+<h3>What it deliberately does not do</h3>
+<p>These are design constraints, not gaps. They are what keeps the service small and reusable:</p>
+<ul>
+  <li><strong>It renders no judgement.</strong> The service reports facts about a document, never
+      meaning: no classification, no categories, no compliance verdicts, no scoring. Interpretation
+      belongs to the calling application, which knows the business context.</li>
+  <li><strong>It stores nothing.</strong> Bytes arrive, results leave, memory is released. There is
+      no database, no blob container and no cache of document content — it must never grow into a
+      document store.</li>
+  <li><strong>It logs no document content.</strong> Filenames, sizes, file types and durations are
+      logged; the text inside a document never is, at any log level.</li>
+  <li><strong>It is not internet-facing.</strong> The service is reachable only from inside the
+      cluster; there is no ingress.</li>
+</ul>
+
+<h3>Supported inputs</h3>
+<table>
+  <thead>
+    <tr><th>Kind</th><th>Typical extensions</th><th>What comes back</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>pdf</code></td><td>.pdf (digital and scanned)</td><td><code>markdown</code></td></tr>
+    <tr><td><code>docx</code></td><td>.docx</td><td><code>markdown</code></td></tr>
+    <tr><td><code>pptx</code></td><td>.pptx</td><td><code>markdown</code></td></tr>
+    <tr><td><code>html</code></td><td>.html, .htm</td><td><code>markdown</code></td></tr>
+    <tr><td><code>xlsx</code></td><td>.xlsx</td><td><code>markdown</code> + <code>tables[]</code> with typed cell values</td></tr>
+    <tr><td><code>image</code></td><td>.jpg, .jpeg, .png</td><td><code>imageDescription</code></td></tr>
+  </tbody>
+</table>
+
+<h2>2. The contract</h2>
+
+<p>One endpoint does the work: <code>POST /v1/extract</code>, <code>multipart/form-data</code>.
+Send N file parts named <code>files</code>, plus an optional <code>hints</code> part carrying JSON.
+The response is synchronous JSON: camelCase field names, lowercase enum values, null fields omitted.</p>
+
+<pre><code>curl -s http://document-intelligence:8090/v1/extract \
+  -F "files=@invoice.pdf;type=application/pdf" \
+  -F "files=@parts-list.xlsx;type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" \
+  -F "files=@component.jpg;type=image/jpeg"</code></pre>
+
+<pre><code>{
+  "files": [
+    { "name": "invoice.pdf", "kind": "pdf",
+      "markdown": "# Invoice 2026-041\n\nSupplier: Acme GmbH\n…",
+      "warnings": [] },
+
+    { "name": "parts-list.xlsx", "kind": "xlsx",
+      "markdown": "## Sheet1\n\n| Part | Qty | Unit price |\n|---|---|---|\n| Filter glass | 200 | 3.75 |\n",
+      "tables": [
+        { "name": "Sheet1",
+          "markdown": "| Part | Qty | Unit price |\n|---|---|---|\n| Filter glass | 200 | 3.75 |\n",
+          "rows": [ ["Part", "Qty", "Unit price"],
+                    ["Filter glass", 200, 3.75] ] }
+      ],
+      "warnings": [] },
+
+    { "name": "component.jpg", "kind": "image",
+      "imageDescription": "A close-up photograph of a cylindrical glass lens element with a violet-tinted coating.",
+      "warnings": [] }
+  ]
+}</code></pre>
+
+<p>Note the two representations of a spreadsheet. <code>markdown</code> is for reading;
+<code>tables[].rows</code> is for computing — <code>200</code> is a JSON number and
+<code>3.75</code> is a JSON number, one table per sheet. Consumers that care about the figures
+should read <code>rows</code> and never re-parse the Markdown.</p>
+
+<h3>The failure model</h3>
+<blockquote>
+<p><strong>A well-formed request always returns 200.</strong> A file that cannot be processed gets
+its own <code>error</code> entry inside that 200 — it never fails the other files in the batch, and
+it never fails the call.</p>
+</blockquote>
+
+<table>
+  <thead><tr><th>Level</th><th>Status</th><th>When</th></tr></thead>
+  <tbody>
+    <tr><td>Per file</td><td>200 with <code>error</code></td>
+        <td>The file is corrupt, empty, of an unsupported type, over the size cap, timed out, or its
+            engine failed or is not configured.</td></tr>
+    <tr><td>Request</td><td>400 <code>problem+json</code></td>
+        <td>The <em>request</em> is malformed: not multipart, no <code>files</code> parts, too many
+            files, file parts totalling over the request cap, oversized <code>hints</code>.</td></tr>
+    <tr><td>Request</td><td>503 + <code>Retry-After</code></td>
+        <td>The pod's in-flight byte budget stayed full for the whole queue window. The request is
+            valid and safe to retry.</td></tr>
+  </tbody>
+</table>
+
+<p>Per-file error codes: <code>unsupported_type</code> · <code>too_large</code> ·
+<code>empty_file</code> · <code>corrupt</code> · <code>timeout</code> · <code>engine_error</code> ·
+<code>engine_unconfigured</code>.</p>
+
+<p>Alongside errors, each file carries a <code>warnings</code> array for anything worth knowing that
+did not stop the extraction — a declared content type that disagreed with the actual bytes, a
+spreadsheet tab that was a chart rather than a worksheet, a single cell that could not be parsed as
+the number or date its own formatting claimed.</p>
+
+<h2>3. High-level design</h2>
+
+<h3>The path a request takes</h3>
+
+<pre><code>  Calling service (cluster-internal)
+        │  POST /v1/extract   multipart/form-data
+        ▼
+┌──────────────────────────────────────────────────────────────────┐
+│ AdmissionFilter      reserve the request's bytes against the     │──▶ 503 + Retry-After
+│                      pod's in-flight budget                      │
+├──────────────────────────────────────────────────────────────────┤
+│ MultipartExtractRequestReader                                    │──▶ 400 problem+json
+│   stream the parts, buffer each file up to its cap, read hints   │
+│ FileKindDetector     magic bytes ─▶ kind (content type is only   │
+│                      a cross-check, never the decision)          │
+├──────────────────────────────────────────────────────────────────┤
+│ ExtractionService    bounded parallelism (4 files at a time)     │
+│                      per file: trace span · metrics · log line   │
+├──────────────────────────────────────────────────────────────────┤
+│ EngineRouter         kind ─▶ engine, per-file timeout, catch-all │
+└───────┬────────────────────────┬────────────────────┬────────────┘
+        │ pdf docx pptx html     │ xlsx               │ image
+        ▼                        ▼                    ▼
+  LayoutEngine            SpreadsheetEngine      VisionEngine
+        │                        │                    │
+        ▼                        │                    ▼
+  Document Intelligence     OpenXML, in-process   Vision model
+  prebuilt-layout model     (no network call)     (chat completion)
+  (EU region)                                     (EU region)
+        │                        │                    │
+        ▼                        ▼                    ▼
+    markdown            markdown + tables[]     imageDescription
+                        (typed rows)
+                             │
+                             ▼
+             200  { "files": [ per-file result or error ] }</code></pre>
+
+<h3>Stage by stage</h3>
+<table>
+  <thead><tr><th>Stage</th><th>Responsibility</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Admission</strong></td>
+        <td>Reserves the request's byte cost <em>before</em> the body is read. This is what bounds
+            pod memory: every accepted file is held whole in memory for the duration of the request,
+            so without a ceiling, peak usage would be bytes-per-request × concurrent requests. A
+            request that cannot get budget in time is shed with a retryable 503 rather than buffered
+            next to whatever already holds the memory.</td></tr>
+    <tr><td><strong>Reading</strong></td>
+        <td>Streams the multipart body part by part. A file over the per-file cap is cut off at the
+            cap and marked <code>too_large</code> — it is never fully buffered. Nothing touches
+            disk. The optional <code>hints</code> part is capped separately.</td></tr>
+    <tr><td><strong>Kind detection</strong></td>
+        <td>Decides what each file <em>is</em> from its leading bytes, not from what the caller
+            claimed. See below.</td></tr>
+    <tr><td><strong>Orchestration</strong></td>
+        <td>Processes files concurrently (4 at a time by default) while returning results in request
+            order. Emits one trace span, one set of metrics and one log line per file — kind, size,
+            outcome, duration; never content.</td></tr>
+    <tr><td><strong>Routing</strong></td>
+        <td>Maps kind to engine, applies the per-file timeout, and catches everything. Any exception
+            an engine can raise becomes a per-file error entry, so one bad file cannot take down the
+            batch. Only genuine client abandonment propagates.</td></tr>
+    <tr><td><strong>Extraction</strong></td>
+        <td>The three engines below. They share one internal interface, so adding a fourth is a
+            matter of registering it against the kinds it handles.</td></tr>
+  </tbody>
+</table>
+
+<h3>How the file type is decided</h3>
+<p>The declared content type is treated as a claim, not as truth — callers get it wrong, and a
+mislabelled file that silently took the wrong path would produce quietly wrong output. Detection
+reads the first bytes of the file instead:</p>
+
+<table>
+  <thead><tr><th>Signature</th><th>Result</th></tr></thead>
+  <tbody>
+    <tr><td><code>%PDF</code></td><td><code>pdf</code></td></tr>
+    <tr><td>PNG signature</td><td><code>image</code> (image/png)</td></tr>
+    <tr><td><code>FF D8 FF</code></td><td><code>image</code> (image/jpeg)</td></tr>
+    <tr><td><code>PK</code> (a ZIP container — every Office file is one)</td>
+        <td><code>docx</code> / <code>xlsx</code> / <code>pptx</code>, disambiguated by the declared
+            content type, falling back to the file extension</td></tr>
+    <tr><td><code>&lt;!doctype</code> or <code>&lt;html</code>, or an HTML content type or extension</td>
+        <td><code>html</code></td></tr>
+    <tr><td>none of the above</td><td>per-file <code>unsupported_type</code> error</td></tr>
+  </tbody>
+</table>
+
+<p>When the bytes and the declared type disagree, the bytes win and the file carries a warning
+saying so. The one case where the declaration matters is the ZIP family: a <code>.docx</code>,
+<code>.xlsx</code> and <code>.pptx</code> are all ZIP archives and cannot be told apart from their
+first bytes alone.</p>
+
+<h3>Extraction path 1 — PDF, DOCX, PPTX, HTML</h3>
+<p><strong>LayoutEngine → Azure AI Document Intelligence, <code>prebuilt-layout</code> model,
+Markdown output.</strong></p>
+<p>These four kinds share one path because one managed model already handles all of them, including
+OCR. A scanned PDF and a digital PDF are the same call; the service does not need to detect which it
+has, and the caller does not need to care. The engine returns the model's Markdown, the page count
+(used for metrics), and any warnings the model itself reported.</p>
+<p>The one failure worth singling out: when the service rejects a file as unreadable, that becomes a
+per-file <code>corrupt</code> error rather than an engine failure — a broken PDF is a fact about the
+file, not an incident.</p>
+
+<h3>Extraction path 2 — XLSX</h3>
+<p><strong>SpreadsheetEngine → OpenXML, in process, no network call.</strong></p>
+<p>Spreadsheets deliberately do <em>not</em> go through the layout model. The point of a spreadsheet
+is its numbers, and a layout model returns rendered text — a cell displaying <code>€3.75</code> or
+<code>3,750</code> would come back as exactly that string, and its true value would have to be
+guessed back out of the formatting. Instead the engine opens the workbook directly and reads each
+cell's stored value and declared type:</p>
+<ul>
+  <li>Numbers become JSON numbers, at full stored precision.</li>
+  <li>Date-formatted cells become ISO-8601 strings.</li>
+  <li>Booleans become <code>true</code>/<code>false</code>; shared strings are resolved to text.</li>
+  <li>Blank rows between populated ones are preserved, so section structure survives.</li>
+  <li>One table is produced per worksheet, each with both a Markdown rendering and the typed rows.</li>
+</ul>
+<p>Anything odd degrades to a warning rather than a failure: a tab that turns out to be a chart is
+skipped and noted, a formula with no cached value is noted, a single cell whose stored text does not
+parse as the type it claims is kept as text and noted. Only a workbook that cannot be opened at all
+is a <code>corrupt</code> error.</p>
+<p>Because this path is entirely local, it keeps working when the cloud engines are unreachable or
+not configured, and it is the fastest of the three by a wide margin.</p>
+
+<h3>Extraction path 3 — JPG, PNG</h3>
+<p><strong>VisionEngine → a vision-capable model, one chat completion per image.</strong></p>
+<p>The image is sent to the model with a fixed system prompt that constrains it to
+<em>observation only</em>: list what is directly visible — objects, text, markings, labels, symbols,
+materials, colours, quantities — transcribe printed text and codes exactly, and do not identify
+product categories or infer purpose, quality or status.</p>
+<p>That prompt is the "facts, never meaning" constraint made concrete at the one point in the system
+where a model could easily be induced to editorialise. It is treated as part of the contract, not as
+a tunable: changing its wording is a specification change, and a test pins it.</p>
+
+<h3>Purpose hints</h3>
+<p>The optional <code>hints</code> part lets a caller annotate individual files:</p>
+<pre><code>hints={"parts-list.xlsx":{"purpose":"bom"},"component.jpg":{"purpose":"photo"}}</code></pre>
+<p>Hints are parsed, validated against the known set and attached to the file as it moves through
+the pipeline; an unrecognised value is ignored with a warning rather than rejected. <strong>Today no
+engine reads them</strong> — they are the declared extension point for purpose-specific behaviour
+(a different vision prompt for a photo, a different table heuristic for a parts list) and are
+carried through the pipeline ready for it, but they do not currently change the output.</p>
+
+<h2>4. Implementation</h2>
+
+<h3>Stack</h3>
+<table>
+  <thead><tr><th>Concern</th><th>Choice</th></tr></thead>
+  <tbody>
+    <tr><td>Runtime / API</td><td>.NET 10, ASP.NET Core minimal API</td></tr>
+    <tr><td>PDF / DOCX / PPTX / HTML</td><td>Azure AI Document Intelligence, <code>prebuilt-layout</code></td></tr>
+    <tr><td>XLSX</td><td>OpenXML SDK, in-process</td></tr>
+    <tr><td>Images</td><td>Azure OpenAI vision-capable deployment</td></tr>
+    <tr><td>Telemetry</td><td>OpenTelemetry (traces, metrics) + structured logging; Prometheus scrape route</td></tr>
+    <tr><td>Packaging</td><td>Chiseled container image, multi-architecture; Helm chart; AKS</td></tr>
+    <tr><td>Local development</td><td>.NET Aspire orchestration with a telemetry dashboard</td></tr>
+  </tbody>
+</table>
+
+<h3>Limits and their defaults</h3>
+<p>All of these are configuration, not constants, and are validated at startup — a bad combination
+stops the service at boot rather than surfacing on a live request.</p>
+<table>
+  <thead><tr><th>Limit</th><th>Default</th><th>Exceeding it</th></tr></thead>
+  <tbody>
+    <tr><td>Bytes per file</td><td>50 MiB</td><td>Per-file <code>too_large</code> inside a 200</td></tr>
+    <tr><td>Files per request</td><td>32</td><td>Request-level 400</td></tr>
+    <tr><td>Total file bytes per request</td><td>200 MiB</td><td>Request-level 400</td></tr>
+    <tr><td>Per-file processing time</td><td>100 s</td><td>Per-file <code>timeout</code> inside a 200</td></tr>
+    <tr><td>Files processed concurrently</td><td>4</td><td>—</td></tr>
+    <tr><td>In-flight bytes per pod</td><td>1 GiB</td><td>503 + <code>Retry-After</code> after the queue window</td></tr>
+  </tbody>
+</table>
+
+<h3>Deployment shape</h3>
+<ul>
+  <li><strong>Cluster-internal only.</strong> A ClusterIP service on port 8090, no ingress. Callers
+      reach it by in-cluster DNS.</li>
+  <li><strong>Horizontally scaled and stateless.</strong> Two to six replicas behind an HPA; because
+      no request depends on another, any pod can serve any request and scaling needs no coordination.</li>
+  <li><strong>Read-only root filesystem</strong>, workload-identity authentication to the Azure
+      services, no credentials in source or in chart values.</li>
+  <li><strong>EU-region Azure resources only</strong>, reached over private endpoints.</li>
+  <li><strong>Degrades rather than disappears.</strong> Each cloud engine activates only when its
+      endpoint is configured; an unconfigured or unreachable one yields
+      <code>engine_unconfigured</code> or <code>engine_error</code> for <em>its</em> file kinds while
+      every other kind — notably the entirely local spreadsheet path — keeps working normally. A
+      degraded dependency deliberately does not fail readiness: all replicas share the same upstream
+      resources, so removing pods from the service would turn a partial outage into a total one.</li>
+</ul>
+
+<h3>Health and observability</h3>
+<ul>
+  <li><code>GET /health</code> — readiness, reporting the last known state of each configured
+      dependency from a background monitor, so no request ever waits on a cloud round-trip.</li>
+  <li><code>GET /alive</code> — liveness, deliberately blind to dependency state: an upstream outage
+      must never restart a pod that is serving correctly.</li>
+  <li><code>GET /metrics</code> — Prometheus exposition. Counters and histograms cover files, pages
+      and bytes processed, per-file duration, duplicate submissions, and rejected or shed requests,
+      tagged by file kind and outcome.</li>
+  <li>Traces: one span per file, tagged with kind, size and outcome — never a filename.</li>
+  <li>A startup connectivity check dials every configured endpoint before the service accepts
+      traffic, so a misconfigured deployment fails loudly at boot instead of turning every document
+      into a per-file error that only the caller ever sees.</li>
+</ul>
+
+<h3>How it is tested</h3>
+<p>Testing is golden-file driven and runs offline by default. A committed set of binary fixtures —
+a text PDF, a scanned PDF, DOCX, PPTX, HTML, several spreadsheets including deliberate edge cases, a
+photograph, a corrupt file and a file of unknown bytes — is pushed through the service on every
+build. The spreadsheet path is proven end-to-end without any cloud dependency at all, since it makes
+no network call. A separate, environment-gated smoke suite runs the same fixtures against the real
+cloud services to prove OCR and image description. One test exists purely to assert the redaction
+rule: it processes every fixture and checks that no known string from inside any of them appears in
+the captured log output.</p>
+
+</body>
+</html>
