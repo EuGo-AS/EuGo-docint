@@ -17,8 +17,13 @@ from a **workstation**, since the router can reach things the tunnel cannot.
 - [ ] 1.5 Verify from a workstation, not from the router: the router path answers for an ordinary
   public hostname, both Foundry hostnames resolve to `10.60.5.4` / `10.60.5.5`, and TLS to each
   validates using the public hostname. Testing from the VM proves nothing about the tunnel.
-- [ ] 1.6 Verify the other private suffixes resolve too — registry, blob, database, cluster, key
-  vault. One mechanism, so one broken suffix means the fix is per-service and therefore wrong.
+- [ ] 1.6 Add the missing **public-suffix** Split DNS entries. Five services are currently
+  registered only in `privatelink.*` form, which never matches a client query, so they stay broken
+  after the resolver is fixed: add `azurecr.io`, `blob.core.windows.net`, `documents.azure.com`,
+  `search.windows.net` and `swedencentral.azmk8s.io` (design D2).
+- [ ] 1.7 Verify the other private suffixes resolve too — registry, blob, Cosmos, Search, database,
+  cluster API, key vault. One mechanism, so one broken suffix means the fix is per-service and
+  therefore wrong.
 
 ## 2. Make it survive a rebuild
 

@@ -82,8 +82,29 @@ that today.
 `cognitiveservices.azure.com`, not `privatelink.cognitiveservices.azure.com`. A client asks for the
 public hostname; the `privatelink.*` form appears only later in the CNAME chain, inside the
 resolver, so a Split DNS route registered on it never matches a client query and fails silently.
-The current configuration already has both forms registered, which is harmless but misleading —
-only the public ones do anything.
+
+**This is not only a tidiness point — half the estate is registered the wrong way.** Of the 17
+entries present on 2026-08-18, five carry a public suffix and will start working the moment a
+resolver exists:
+
+```
+cognitiveservices.azure.com   openai.azure.com   services.ai.azure.com
+postgres.database.azure.com   vault.azure.net
+```
+
+The rest exist **only** in `privatelink.*` form, and so match nothing a client ever asks for:
+
+```
+privatelink.azurecr.io                privatelink.blob.core.windows.net
+privatelink.documents.azure.com       privatelink.search.windows.net
+privatelink.swedencentral.azmk8s.io
+```
+
+Those five need public-suffix entries added — `azurecr.io`, `blob.core.windows.net`,
+`documents.azure.com`, `search.windows.net`, `swedencentral.azmk8s.io` — or the container registry,
+blob storage, Cosmos, Search and the cluster API stay unresolvable even after the resolver is
+fixed, with exactly the symptom this change is meant to remove. The duplicate `privatelink.*`
+entries for the working five are inert and are left alone (see *Deliberately deferred*).
 
 ### D3 — Provisioning owns the configuration, and that is the actual deliverable
 

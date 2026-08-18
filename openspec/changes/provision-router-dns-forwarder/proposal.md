@@ -39,9 +39,9 @@ same way.
 - **The configuration is provisioned with the VM**, not applied over SSH. This is the actual
   defect: a rebuild must reproduce a working router with no manual step, including the advertised
   routes, which are equally at risk.
-- **Split DNS entries are corrected** to the router's tailnet address, on the **public** suffixes
-  (`cognitiveservices.azure.com`, not `privatelink.cognitiveservices.azure.com` — the
-  `privatelink.*` forms silently never match a client query).
+- **Split DNS entries are corrected**, including five services currently registered *only* in
+  `privatelink.*` form — a form that never matches a client query, so ACR, blob storage, Cosmos,
+  Search and the cluster API would stay unresolvable even after the resolver is restored.
 - **A check that the path works**, so the next silent loss is caught by something other than a
   developer's failing test run.
 
