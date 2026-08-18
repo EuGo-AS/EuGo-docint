@@ -65,8 +65,8 @@ public class StartupConnectivityCheckTests
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
-            builder.UseSetting("DocumentIntelligence:Endpoint", "https://di.example/");
-            builder.UseSetting("AzureOpenAI:Endpoint", "https://aoai.example/");
+            builder.UseSetting("Foundry:DocumentIntelligenceEndpoint", "https://di.example/");
+            builder.UseSetting("Foundry:OpenAIEndpoint", "https://aoai.example/");
             base.ConfigureWebHost(builder);   // leaves the check disabled, so nothing is dialled
         }
     }

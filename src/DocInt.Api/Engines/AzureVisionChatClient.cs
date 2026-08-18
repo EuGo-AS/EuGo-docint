@@ -11,14 +11,14 @@ public sealed class AzureVisionChatClient : IVisionChatClient
 {
     private readonly ChatClient? _chat;
 
-    public AzureVisionChatClient(IOptions<AzureOpenAIOptions> options)
+    public AzureVisionChatClient(IOptions<FoundryOptions> options)
     {
         var o = options.Value;
-        if (string.IsNullOrWhiteSpace(o.Endpoint)) return;
-        var endpoint = new Uri(o.Endpoint);
-        var azureClient = string.IsNullOrWhiteSpace(o.ApiKey)
-            ? new AzureOpenAIClient(endpoint, new DefaultAzureCredential())
-            : new AzureOpenAIClient(endpoint, new AzureKeyCredential(o.ApiKey));
+        if (string.IsNullOrWhiteSpace(o.OpenAIEndpoint)) return;
+        var endpoint = new Uri(o.OpenAIEndpoint);
+        var azureClient = FoundryCredential.UsesApiKey(o)
+            ? new AzureOpenAIClient(endpoint, new AzureKeyCredential(o.ApiKey!))
+            : new AzureOpenAIClient(endpoint, new DefaultAzureCredential());
         _chat = azureClient.GetChatClient(o.DeploymentNameVision);
     }
 
@@ -28,7 +28,7 @@ public sealed class AzureVisionChatClient : IVisionChatClient
         string systemPrompt, BinaryData image, string mediaType, CancellationToken ct)
     {
         if (_chat is null)
-            throw new EngineUnconfiguredException("AzureOpenAI:Endpoint is not configured");
+            throw new EngineUnconfiguredException("Foundry:OpenAIEndpoint is not configured");
         var completion = await _chat.CompleteChatAsync(
             [
                 new SystemChatMessage(systemPrompt),

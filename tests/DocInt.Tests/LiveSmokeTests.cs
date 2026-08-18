@@ -5,19 +5,27 @@ namespace DocInt.Tests;
 
 /// <summary>
 /// Live smoke against real Azure. Gated: set DOCINT_LIVE_TESTS=1 plus
-/// DocumentIntelligence__Endpoint (+ ApiKey unless using az login) and
-/// AzureOpenAI__Endpoint (+ ApiKey) in the environment, then run
+/// Foundry__DocumentIntelligenceEndpoint and Foundry__OpenAIEndpoint, and Foundry__ApiKey unless
+/// using az login — one key for both, because both hosts belong to the same Foundry account.
+/// Then run
 ///   DOCINT_LIVE_TESTS=1 dotnet test --no-build src/DocInt.slnx --filter "FullyQualifiedName~LiveSmokeTests"
 /// Without the gate every test here reports SKIPPED.
+///
+/// Export these in a shell with no leftover DocumentIntelligence__* or AzureOpenAI__* variables:
+/// those are retired, and the host now refuses to start while one carries a value.
 /// </summary>
 public class LiveSmokeTests : IClassFixture<DocIntAppFactory>
 {
     private static bool LiveEnabled =>
         Environment.GetEnvironmentVariable("DOCINT_LIVE_TESTS") == "1";
+    // Read from the environment rather than IConfiguration on purpose: these gate whether a test
+    // runs at all, which is decided before any host exists. Repointing them is not cosmetic — left
+    // on the retired names they would go on answering false, and every live test would report
+    // SKIPPED rather than failing, which is the one outcome nobody notices.
     private static bool HasDi =>
-        !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DocumentIntelligence__Endpoint"));
+        !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("Foundry__DocumentIntelligenceEndpoint"));
     private static bool HasVision =>
-        !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AzureOpenAI__Endpoint"));
+        !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("Foundry__OpenAIEndpoint"));
 
     private readonly DocIntAppFactory _factory;
 
@@ -43,7 +51,7 @@ public class LiveSmokeTests : IClassFixture<DocIntAppFactory>
     [InlineData("sample.html", "text/html")]
     public async Task Layout_kinds_yield_nonempty_markdown(string fixture, string contentType)
     {
-        Skip.IfNot(LiveEnabled && HasDi, "live tests disabled or DocumentIntelligence__Endpoint not set");
+        Skip.IfNot(LiveEnabled && HasDi, "live tests disabled or Foundry__DocumentIntelligenceEndpoint not set");
         var file = await ExtractOne(fixture, contentType);
         Assert.Null(file.Error);
         Assert.False(string.IsNullOrWhiteSpace(file.Markdown));
@@ -52,7 +60,7 @@ public class LiveSmokeTests : IClassFixture<DocIntAppFactory>
     [SkippableFact]
     public async Task Scanned_pdf_proves_ocr()
     {
-        Skip.IfNot(LiveEnabled && HasDi, "live tests disabled or DocumentIntelligence__Endpoint not set");
+        Skip.IfNot(LiveEnabled && HasDi, "live tests disabled or Foundry__DocumentIntelligenceEndpoint not set");
         var file = await ExtractOne("scanned.pdf", "application/pdf");
         Assert.Contains("OCR", file.Markdown, StringComparison.OrdinalIgnoreCase);
     }
@@ -60,7 +68,7 @@ public class LiveSmokeTests : IClassFixture<DocIntAppFactory>
     [SkippableFact]
     public async Task Photo_description_mentions_lens_or_uv_cues()
     {
-        Skip.IfNot(LiveEnabled && HasVision, "live tests disabled or AzureOpenAI__Endpoint not set");
+        Skip.IfNot(LiveEnabled && HasVision, "live tests disabled or Foundry__OpenAIEndpoint not set");
         var file = await ExtractOne("photo.png", "image/png");
         Assert.Null(file.Error);
         Assert.False(string.IsNullOrWhiteSpace(file.ImageDescription));

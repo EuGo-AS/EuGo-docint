@@ -1,0 +1,54 @@
+Every group ends at the green gate, in this order against `src/DocInt.slnx`:
+`dotnet restore` → `dotnet build --no-restore` → `dotnet test --no-build`.
+
+## 1. One options class for the resource
+
+- [x] 1.1 Write failing tests in `OptionsTests` for `FoundryOptions`: all four values bind from the `Foundry` section; each endpoint is independently optional; a non-absolute URI in either endpoint fails `ValidateOnStart`; `DeploymentNameVision` is required once `OpenAIEndpoint` is set and not required while it is blank.
+- [x] 1.2 Add `FoundryOptions` (`SectionName = "Foundry"`, properties `ApiKey`, `DocumentIntelligenceEndpoint`, `OpenAIEndpoint`, `DeploymentNameVision`); delete `DocumentIntelligenceOptions` and `AzureOpenAIOptions`; move their binding and validation onto the new class in `AddDocIntOptions`. Keep the file's existing convention of no property initializers except where a default is deliberate (`DeploymentNameVision` keeps its `""`-means-absent comment).
+- [x] 1.3 Write a failing test for the shared credential factory (design D1): key present → the key branch; key blank or whitespace → the managed-identity branch. Then add the factory and route `AzureLayoutAnalysisClient`, `AzureVisionChatClient`, `DocumentIntelligenceStartupProbe`, and `AzureOpenAIStartupProbe` through it, each adapting to the credential type its SDK wants.
+- [x] 1.4 Point the four call sites at `FoundryOptions` — layout on `DocumentIntelligenceEndpoint`, vision on `OpenAIEndpoint` + `DeploymentNameVision` — and update the `EngineUnconfiguredException` messages to name the new keys.
+- [x] 1.5 Update the key paths `AddStartupConnectivityCheck` reads, leaving the one-endpoint-one-probe-one-check invariant and the `Document Intelligence` / `Azure OpenAI` health-check service names unchanged (design D6).
+- [x] 1.6 Replace the `DocumentIntelligence` and `AzureOpenAI` sections in `src/DocInt.Api/appsettings.json` with a single `Foundry` section, carrying the shipped `DeploymentNameVision` and blank endpoints, and keep the comments explaining why the endpoints ship blank and why the deployment name is an alias.
+- [x] 1.7 Update test fixtures and env-var names that reference the retired sections: `DocIntAppFactory` (its `Blank(...)` calls neutralise a developer's ambient endpoint variables — keep that behaviour, pointed at the `Foundry` keys), `DependencyHealthTests`, `StartupConnectivityCheckTests`, and `HealthEndpointsTests`.
+- [x] 1.8 Update `LiveSmokeTests`: its skip gates read `DocumentIntelligence__Endpoint` and `AzureOpenAI__Endpoint` through `Environment.GetEnvironmentVariable` directly, not through `IConfiguration`, so they must be re-pointed at `Foundry__DocumentIntelligenceEndpoint` and `Foundry__OpenAIEndpoint` or every live test silently self-skips. Update the doc comment in the same pass.
+- [x] 1.9 Green gate.
+
+## 2. Retired keys fail the service at boot
+
+- [x] 2.1 Write failing tests: each of `DocumentIntelligence:Endpoint`, `DocumentIntelligence:ApiKey`, `AzureOpenAI:Endpoint`, `AzureOpenAI:ApiKey`, `AzureOpenAI:DeploymentNameVision` fails start-up, supplied both as an in-memory setting and as an environment variable (mirroring `StartupConfigurationLoggingTests`' two-path approach, and restoring the variable in a `finally`). Assert the message names both the retired key and its replacement. Assert a clean configuration starts.
+- [x] 2.2 Write a failing test that an unrelated key containing a retired section's name as a substring does **not** trip the check — the check matches exact key paths only (design D3).
+- [x] 2.3 Write a failing test that a retired key present with an **empty** value does not trip the check. This is load-bearing, not an edge case: the process environment is folded into `IConfiguration` wholesale and `DocIntAppFactory` blanks endpoint keys on purpose, so firing on presence rather than on a value would fail the offline suite on developer machines (design D3).
+- [x] 2.4 Implement the check as an `IValidateOptions<FoundryOptions>` reading `IConfiguration`, registered so it runs under `ValidateOnStart`.
+- [x] 2.5 Verify ordering with a test: a configuration carrying both a retired key and an unreachable endpoint reports the retired key, not a connectivity failure. If the validation channel does not run first, switch to the eager check in `AddDocIntOptions` per design D3's alternative and record which was used. **Result: the IValidateOptions channel runs first** — verified by `A_retired_key_is_reported_before_any_connectivity_failure`; the eager fallback was not needed.
+- [x] 2.6 Green gate. If it fails on this machine because a shell still exports `DocumentIntelligence__Endpoint`, that is the check working — re-export as `Foundry__*` rather than weakening the check.
+
+## 3. Boot configuration disclosure
+
+- [x] 3.1 Write failing tests in `StartupConfigurationLoggingTests`: `Foundry:ApiKey` is logged as `***redacted***` and its value never appears, for both an in-memory setting and an environment variable; the endpoints and `DeploymentNameVision` are logged with their resolved values.
+- [x] 3.2 Replace `DocumentIntelligence` and `AzureOpenAI` with `Foundry` in `StartupConfigurationLog.Roots`. Leave `SecretMarkers` untouched — `ApiKey` already ends in `key`, so redaction works unchanged (design D4).
+- [x] 3.3 Green gate.
+
+## 4. Helm chart
+
+- [x] 4.1 Replace the `azure.*` block in `values.yaml` with `foundry.documentIntelligenceEndpoint`, `foundry.openAIEndpoint`, `foundry.deploymentNameVision`, carrying over the comments about degraded mode and the deployment alias. Do **not** add an `apiKey` value, and keep the README's reasoning intact.
+- [x] 4.2 Update `templates/deployment.yaml` to render `Foundry__DocumentIntelligenceEndpoint`, `Foundry__OpenAIEndpoint`, `Foundry__DeploymentNameVision`, preserving the "empty omits the variable" behaviour.
+- [x] 4.3 Update `charts/eugo-docint/ci/test-values.yaml` to the new value paths.
+- [x] 4.4 Bump `Chart.yaml` `version` to `0.2.0` — a values-breaking change cannot be a patch. Do not hand-edit `appVersion`; `release.yml` stamps it at package time.
+- [x] 4.5 Record the release ordering this forces, in the PR description and wherever the release is cut: `release.yml` resolves `appVersion` by searching `git tag -l "v0.2.*"` and **fails the chart release** when no such image tag exists. The `v0.2.0` image tag must be cut before, or together with, any `chart-v0.2.*` tag. Nothing in the repository can be edited to satisfy this — it is a tagging-order constraint, and it is invisible until CI runs (design D5).
+- [x] 4.6 Run `helm lint charts/eugo-docint` and `helm template ci charts/eugo-docint -f charts/eugo-docint/ci/test-values.yaml`; confirm the three variables render, that blank values omit them, and that the writable `/tmp` mount and the security context are byte-identical to before. If `helm` is unavailable, say so explicitly rather than skipping the step silently.
+- [x] 4.7 Raise the EuGo-infra handoff explicitly: the release-side values rename from `azure.*` to `foundry.*` lives in that repository and **cannot be completed here**. Whether those values are pinned in an EuGo-infra file or supplied at release time is the design's one open question; it does not change anything built in this repo, but the handoff must be stated rather than closed silently.
+- [x] 4.8 Green gate.
+
+## 5. Documentation
+
+- [x] 5.1 Update the `README.md` configuration reference table: replace the five retired rows with the four `Foundry:*` rows and their chart value paths, and note that a retired key now fails the service at boot.
+- [x] 5.2 Update the `README.md` user-secrets example and the "Credentials never go in `values.yaml`" paragraph to the new names, keeping the Workload Identity reasoning.
+- [x] 5.3 Update the live-smoke export block in `CLAUDE.md` to `Foundry__ApiKey` and the two `Foundry__*Endpoint` variables, and note that the one key serves both hosts.
+- [x] 5.4 Confirm `docs/superpowers/**` is untouched — those documents are historical records and keep the old names deliberately.
+- [x] 5.5 Green gate.
+
+## 6. Verification
+
+- [x] 6.1 Re-key this repository's local configuration: remove the retired user-secrets and set `Foundry:ApiKey`, `Foundry:DocumentIntelligenceEndpoint`, `Foundry:OpenAIEndpoint`. Confirm `dotnet run --project src/DocInt.Api` starts and the boot dump shows the key redacted.
+- [ ] 6.2 Run the env-gated live suite from Windows on the tailnet to prove the single key authenticates both hosts — the one claim the offline suite cannot reach, since `aif-eugo-swc` has `publicNetworkAccess: Disabled`. Export the `Foundry__*` variables in a **fresh shell**: leftover `DocumentIntelligence__*` variables now fail the host at boot, and stale ones would also leave the live tests self-skipping. If the tailnet is unavailable, record it as blocked with the reason; do not weaken or skip an offline test to compensate. **BLOCKED 2026-08-18:** not on the tailnet — `aif-eugo-swc.cognitiveservices.azure.com` and `.openai.azure.com` do not resolve from this machine, the tailscale CLI is not on PATH, and the VPN VM (`vm-eugo-vpn-swc`) is deallocated by default. Starting it is an infrastructure action left to the user. Everything the offline suite can reach is green; the single unproven claim is that one key authenticates both hosts, and the account exposes only one key pair (`key1`/`key2`, verified via the management plane), so no alternative outcome exists for it to have.
+- [x] 6.3 Final green gate on a clean tree, and confirm no source file outside `docs/superpowers/**` still references a retired key path. **Swept with no extension filter** — an extension-filtered grep silently skips `Dockerfile` (clean) and `.drawio`; both `docs/diagrams/*.drawio` did carry retired key names and were updated.

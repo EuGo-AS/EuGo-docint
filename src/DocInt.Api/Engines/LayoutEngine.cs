@@ -13,7 +13,7 @@ public sealed class LayoutEngine(ILayoutAnalysisClient client) : IExtractionEngi
     {
         if (!client.IsConfigured)
             return Errors.For(file, ErrorCodes.EngineUnconfigured,
-                "document layout engine is not configured: set DocumentIntelligence:Endpoint");
+                "document layout engine is not configured: set Foundry:DocumentIntelligenceEndpoint");
         try
         {
             var analysis = await client.AnalyzeAsync(BinaryData.FromBytes(file.Bytes), ct);

@@ -11,7 +11,7 @@ namespace DocInt.Tests;
 /// </summary>
 public class StartupConfigurationLoggingTests
 {
-    private const string ApiKeySentinel = "SENTINEL-AOAI-KEY-MUST-NOT-BE-LOGGED";
+    private const string ApiKeySentinel = "SENTINEL-FOUNDRY-KEY-MUST-NOT-BE-LOGGED";
     private const string ForeignSentinel = "SENTINEL-FOREIGN-VALUE-MUST-NOT-BE-LOGGED";
 
     /// <summary>Boots the real Program with every log line captured, nothing else changed.</summary>
@@ -28,7 +28,11 @@ public class StartupConfigurationLoggingTests
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             // A key supplied the way a real deployment supplies it: not from tracked config.
-            builder.UseSetting("AzureOpenAI:ApiKey", ApiKeySentinel);
+            builder.UseSetting("Foundry:ApiKey", ApiKeySentinel);
+            // The endpoints are not credentials and must keep their values: they are the half of
+            // the dump an operator actually reads back.
+            builder.UseSetting("Foundry:DocumentIntelligenceEndpoint", "https://di.example/");
+            builder.UseSetting("Foundry:OpenAIEndpoint", "https://aoai.example/");
             // Stands in for the process environment, which the un-prefixed environment-variable
             // provider folds into IConfiguration wholesale.
             builder.UseSetting("NotAnAppSection:Whatever", ForeignSentinel);
@@ -51,8 +55,14 @@ public class StartupConfigurationLoggingTests
 
         Assert.Contains(lines, l => l.Contains("DocInt:MaxFileBytes") && l.Contains("52428800"));
         Assert.Contains(lines, l => l.Contains("DocInt:MaxParallelism") && l.Contains('4'));
-        Assert.Contains(lines, l => l.Contains("AzureOpenAI:DeploymentNameVision")
+        Assert.Contains(lines, l => l.Contains("Foundry:DeploymentNameVision")
                                  && l.Contains("model-eugo-docint-vision"));
+        // Both endpoints, with their values: the dump exists so a pod's log says which hosts it
+        // actually came up against, and one account serving two hosts means both have to appear.
+        Assert.Contains(lines, l => l.Contains("Foundry:DocumentIntelligenceEndpoint")
+                                 && l.Contains("https://di.example/"));
+        Assert.Contains(lines, l => l.Contains("Foundry:OpenAIEndpoint")
+                                 && l.Contains("https://aoai.example/"));
 
         var configEntries = capture.Entries.Where(e => e.Message.StartsWith("Configuration ")).ToArray();
         Assert.NotEmpty(configEntries);
@@ -66,7 +76,7 @@ public class StartupConfigurationLoggingTests
         var lines = BootAndCapture(factory).Lines.ToArray();
 
         Assert.DoesNotContain(lines, l => l.Contains(ApiKeySentinel));
-        Assert.Contains(lines, l => l.Contains("AzureOpenAI:ApiKey") && l.Contains("***redacted***"));
+        Assert.Contains(lines, l => l.Contains("Foundry:ApiKey") && l.Contains("***redacted***"));
 
         // ...and redaction stays narrow: an ordinary key keeps its value.
         Assert.Contains(lines, l => l.Contains("Serilog:MinimumLevel:Default")
@@ -75,25 +85,25 @@ public class StartupConfigurationLoggingTests
 
     // The shape a deployed pod actually uses: the key arrives from the environment under the
     // double-underscore spelling, which the environment-variable provider maps onto the same
-    // AzureOpenAI:ApiKey path. The in-memory settings above are the easy case; this is the one
+    // Foundry:ApiKey path. The in-memory settings above are the easy case; this is the one
     // whose failure would put a live credential in a log sink — so it boots a plain factory,
     // where no UseSetting value can mask what the environment supplied.
     [Fact]
     public void Secret_supplied_through_the_environment_is_redacted_too()
     {
         const string envSentinel = "SENTINEL-ENV-KEY-MUST-NOT-BE-LOGGED";
-        Environment.SetEnvironmentVariable("AzureOpenAI__ApiKey", envSentinel);
+        Environment.SetEnvironmentVariable("Foundry__ApiKey", envSentinel);
         try
         {
             using var factory = new CapturingFactory();
             var lines = BootAndCapture(factory).Lines.ToArray();
 
             Assert.DoesNotContain(lines, l => l.Contains(envSentinel));
-            Assert.Contains(lines, l => l.Contains("AzureOpenAI:ApiKey") && l.Contains("***redacted***"));
+            Assert.Contains(lines, l => l.Contains("Foundry:ApiKey") && l.Contains("***redacted***"));
         }
         finally
         {
-            Environment.SetEnvironmentVariable("AzureOpenAI__ApiKey", null);
+            Environment.SetEnvironmentVariable("Foundry__ApiKey", null);
         }
     }
 

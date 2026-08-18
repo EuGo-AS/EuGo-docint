@@ -10,14 +10,14 @@ public sealed class AzureLayoutAnalysisClient : ILayoutAnalysisClient
 {
     private readonly DocumentIntelligenceClient? _client;
 
-    public AzureLayoutAnalysisClient(IOptions<DocumentIntelligenceOptions> options)
+    public AzureLayoutAnalysisClient(IOptions<FoundryOptions> options)
     {
         var o = options.Value;
-        if (string.IsNullOrWhiteSpace(o.Endpoint)) return;
-        var endpoint = new Uri(o.Endpoint);
-        _client = string.IsNullOrWhiteSpace(o.ApiKey)
-            ? new DocumentIntelligenceClient(endpoint, new DefaultAzureCredential())
-            : new DocumentIntelligenceClient(endpoint, new AzureKeyCredential(o.ApiKey));
+        if (string.IsNullOrWhiteSpace(o.DocumentIntelligenceEndpoint)) return;
+        var endpoint = new Uri(o.DocumentIntelligenceEndpoint);
+        _client = FoundryCredential.UsesApiKey(o)
+            ? new DocumentIntelligenceClient(endpoint, new AzureKeyCredential(o.ApiKey!))
+            : new DocumentIntelligenceClient(endpoint, new DefaultAzureCredential());
     }
 
     public bool IsConfigured => _client is not null;
@@ -25,7 +25,7 @@ public sealed class AzureLayoutAnalysisClient : ILayoutAnalysisClient
     public async Task<LayoutAnalysis> AnalyzeAsync(BinaryData content, CancellationToken ct)
     {
         if (_client is null)
-            throw new EngineUnconfiguredException("DocumentIntelligence:Endpoint is not configured");
+            throw new EngineUnconfiguredException("Foundry:DocumentIntelligenceEndpoint is not configured");
         var options = new AnalyzeDocumentOptions("prebuilt-layout", content)
         {
             OutputContentFormat = DocumentContentFormat.Markdown
