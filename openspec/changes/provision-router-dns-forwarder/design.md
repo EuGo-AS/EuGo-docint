@@ -36,9 +36,30 @@ Facts the design rests on, all read on 2026-08-18:
 
 ## Decisions
 
-### D1 — Prefer routing to Azure's resolver over running one on the VM
+### D1 — Keep the existing `dnsmasq`; do not replace it
 
-Two implementations satisfy the spec.
+**Superseded reasoning, kept deliberately.** This decision originally recommended replacing a
+resolver on the VM with a route to Azure's, on the belief that no resolver existed. Inspection
+showed one does, correctly configured: `bind-dynamic` on `tailscale0` and `lo`, with per-suffix
+upstreams to `168.63.129.16` registered on the **public** suffixes — including a comment explaining
+why the public form is the load-bearing one. It answers correctly:
+
+```
+dig aif-eugo-swc.cognitiveservices.azure.com @100.111.128.91
+  → aif-eugo-swc.privatelink.cognitiveservices.azure.com.
+  → 10.60.5.4
+```
+
+**Keep it.** It already covers more suffixes than Split DNS routes to it, its per-suffix design
+keeps public resolution off the tunnel, and replacing working infrastructure to satisfy a
+preference formed from a bad diagnosis would be its own defect. The two options below are retained
+only so the alternative is not re-derived.
+
+The one thing worth carrying over from the superseded reasoning: `dnsmasq` is a component that must
+be reproduced on rebuild, and it was not. That is D3's problem, not a reason to remove it.
+
+<details>
+<summary>The two implementations considered when the resolver was believed absent</summary>
 
 **Option A — advertise `168.63.129.16/32` and point Split DNS at it.** Azure's platform resolver
 already answers correctly for every linked private zone; it is simply not reachable over the tunnel
@@ -62,20 +83,12 @@ server=168.63.129.16
 no-resolv
 ```
 
-**Recommendation: Option A**, on the grounds that matter here. It installs no package, runs no
-daemon, and adds nothing to patch on an ARM VM — and the failure being fixed was caused by a
-hand-built component not surviving a rebuild, so the option with fewer components to reproduce is
-the one that addresses the cause rather than the symptom. It also removes the coupling to the
-router's tailnet address, which is exactly what went stale.
+Option A would have removed the coupling to the router's tailnet address, which is what went stale;
+its cost is a dependency on subnet-route SNAT staying enabled. Option B is what is deployed, and
+Option B is what the tailnet already needs, since the per-suffix upstreams keep public resolution
+off the tunnel — behaviour Option A does not offer.
 
-Option A's cost is one non-obvious dependency: it relies on subnet-route SNAT staying enabled. If
-`--snat-subnet-routes=false` is ever set, queries reach the resolver with a tailnet source address
-and are dropped. That is worth a comment in the provisioning definition, because the failure would
-look like this one.
-
-Choose Option B instead if the tailnet later needs DNS behaviour Azure's resolver will not give —
-caching, per-suffix overrides, or split answers for names that exist in both places. Nothing needs
-that today.
+</details>
 
 ### D2 — Split DNS entries stay on the public suffixes
 

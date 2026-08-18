@@ -16,12 +16,20 @@ exactly what is and is not broken (all verified 2026-08-18):
 | Route `10.60.0.0/16` | Healthy — advertised as a primary route; TCP 443 reaches `10.60.5.4`, `.5`, `.6` |
 | TLS at the private endpoints | Healthy — Microsoft cert, SANs `*.cognitiveservices.azure.com` / `*.openai.azure.com` |
 | Private DNS zones | Healthy — linked to both `vnet-eugo-hub-swc` and `vnet-eugo-spoke-swc` |
-| **DNS service on the router** | **Absent — `google.com` does not resolve through it either** |
+| DNS service on the router | Healthy — `dnsmasq` answers, forwarding the **public** suffixes to `168.63.129.16`, and returns `10.60.5.4` for the Document Intelligence hostname |
+| **Split DNS suffix coverage** | **Incomplete — five services are registered only in `privatelink.*` form** |
+| **Reproducibility** | **Unverified — the working configuration is not known to survive a rebuild** |
 
-The VM was rebuilt, came back with a new tailnet address (`100.111.128.91`, replacing
-`100.77.69.84`), and without whatever answered DNS before. Tailnet Split DNS kept naming the old
-address, so queries went to a node that no longer existed; repointing them at the new address
-changed the symptom without fixing it, because the new node answers nothing at all.
+The VM was rebuilt and came back with a new tailnet address (`100.111.128.91`, replacing
+`100.77.69.84`), while tailnet Split DNS kept naming the old one — so every query went to a node
+that no longer existed. That has since been corrected.
+
+**A correction to an earlier reading of this incident**, recorded because it cost time and would
+cost it again: the router was diagnosed as "running no resolver" on the strength of `google.com`
+failing through it. That was a bad probe. `dnsmasq` here is a *split* resolver — it is configured
+with per-suffix upstreams and no general one, so refusing a public name is correct behaviour, not a
+fault. Probing it with a name it is meant to serve shows it working. Any future diagnosis of this
+path must use an in-scope name.
 
 Everything reachable only through a private endpoint is therefore unresolvable from a workstation —
 not one service but all of them: the Foundry account, ACR, blob storage, Postgres, AKS and Key
@@ -34,20 +42,23 @@ same way.
 
 ## What Changes
 
-- **The router answers DNS for the tailnet**, resolving private-endpoint hostnames to their
-  `10.60.x.x` addresses by asking the resolver that can see the linked private DNS zones.
-- **The configuration is provisioned with the VM**, not applied over SSH. This is the actual
-  defect: a rebuild must reproduce a working router with no manual step, including the advertised
-  routes, which are equally at risk.
-- **Split DNS entries are corrected**, including five services currently registered *only* in
-  `privatelink.*` form — a form that never matches a client query, so ACR, blob storage, Cosmos,
-  Search and the cluster API would stay unresolvable even after the resolver is restored.
+The resolver itself needs nothing — it already works. What remains are the two gaps that let this
+break silently and stay broken, plus the coverage hole they masked:
+
+- **Split DNS gains the missing public suffixes.** Five services are registered *only* in
+  `privatelink.*` form, which never matches a client query, so ACR, blob storage, Cosmos, Search and
+  the cluster API are unresolvable from a workstation regardless of the resolver's health.
+  `dnsmasq` is already configured to serve them — only the client-side routing of those suffixes is
+  missing, so this is one console change away.
+- **The configuration is provisioned with the VM.** This is the actual defect behind the outage:
+  the rebuild produced a router without the tailnet DNS wiring, and nothing noticed. The advertised
+  routes are equally unprotected — correct today by accident of the current instance.
 - **A check that the path works**, so the next silent loss is caught by something other than a
   developer's failing test run.
 
-Two implementations satisfy this and the choice is recorded in `design.md`: a resolver on the VM,
-or advertising Azure's resolver address as an additional route and pointing Split DNS straight at
-it. The requirements below are written against the observable behaviour so either can satisfy them.
+`design.md` records the implementation choice for the resolver. Since a working `dnsmasq`
+configuration already exists, that section now serves to explain why it is kept rather than
+replaced.
 
 ## Capabilities
 

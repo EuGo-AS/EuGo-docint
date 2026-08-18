@@ -3,36 +3,31 @@ the change is staged here only because EuGo-infra is not checked out on this mac
 `dotnet` gate to run — the verification at the end of each group is a resolution and connection test
 from a **workstation**, since the router can reach things the tunnel cannot.
 
-## 1. Restore resolution
+## 1. Complete the suffix coverage
 
-- [ ] 1.1 Confirm the fault before changing anything: from a joined workstation,
-  `Resolve-DnsName google.com -Server <router-tailnet-ip>` returns no answer. This distinguishes
-  "no resolver" from "resolver without the private zones", and the two have different fixes.
-- [ ] 1.2 Apply the chosen implementation from design D1 — Option A (advertise `168.63.129.16/32`
-  and point Split DNS at it) unless there is a reason to prefer B. Record which was applied and why.
-- [ ] 1.3 For Option A: approve the new route in the Tailscale admin console. For Option B: confirm
-  `dnsmasq` binds only `tailscale0` and has not taken `0.0.0.0:53` from `systemd-resolved`.
-- [ ] 1.4 Point the Split DNS entries for the private suffixes at the chosen nameserver, on the
-  **public** suffixes only (design D2).
-- [ ] 1.5 Verify from a workstation, not from the router: the router path answers for an ordinary
-  public hostname, both Foundry hostnames resolve to `10.60.5.4` / `10.60.5.5`, and TLS to each
-  validates using the public hostname. Testing from the VM proves nothing about the tunnel.
-- [ ] 1.6 Add the missing **public-suffix** Split DNS entries. Five services are currently
-  registered only in `privatelink.*` form, which never matches a client query, so they stay broken
-  after the resolver is fixed: add `azurecr.io`, `blob.core.windows.net`, `documents.azure.com`,
-  `search.windows.net` and `swedencentral.azmk8s.io` (design D2).
-- [ ] 1.7 Verify the other private suffixes resolve too — registry, blob, Cosmos, Search, database,
-  cluster API, key vault. One mechanism, so one broken suffix means the fix is per-service and
-  therefore wrong.
+The resolver already works — `dnsmasq` on the router answers correctly and is configured for more
+suffixes than the tailnet routes to it. Nothing on the VM needs changing in this group.
+
+- [ ] 1.1 Add the missing **public-suffix** Split DNS entries: `azurecr.io`,
+  `blob.core.windows.net`, `documents.azure.com`, `search.windows.net`, `swedencentral.azmk8s.io`.
+  Each is registered today only in `privatelink.*` form, which never matches a client query, so
+  those five services are unresolvable from a workstation no matter how healthy the resolver is.
+  `dnsmasq` already has upstreams for all of them.
+- [ ] 1.2 Verify from a workstation that all five resolve to `10.60.x.x`, plus the three Foundry
+  hostnames — using an **in-scope** name in every probe. A public name such as `google.com` is
+  refused by design and proves nothing (design D1).
+- [ ] 1.3 Leave the duplicate `privatelink.*` entries alone; tidying them is deferred and would
+  confuse this verification.
 
 ## 2. Make it survive a rebuild
 
 - [ ] 2.1 Move the configuration into the VM's provisioning definition: the advertised routes **and**
-  whichever DNS mechanism was chosen. The routes are equally unprotected today — they are correct by
-  accident of the current instance, not by definition.
-- [ ] 2.2 For Option A, record next to the flag that it depends on subnet-route SNAT remaining
-  enabled; disabling it breaks resolution in a way that looks exactly like this outage (design D1).
-- [ ] 2.3 Rebuild or reprovision the router from that definition and repeat 1.5 with no manual step
+  the `dnsmasq` package and its `/etc/dnsmasq.d/` config. The routes are equally unprotected today —
+  they are correct by accident of the current instance, not by definition.
+- [ ] 2.2 Carry the existing config's own comment across: the per-suffix upstreams must be
+  registered on the **public** suffixes, because the `privatelink.*` form is only ever an
+  intermediate hop the resolver expands internally and matches nothing a client asks for.
+- [ ] 2.3 Rebuild or reprovision the router from that definition and repeat 1.2 with no manual step
   in between. This is the requirement — an unrepeated rebuild leaves the actual defect unfixed, and
   the change should not be considered done without it.
 - [ ] 2.4 Note in the provisioning definition that the Split DNS entries live in the Tailscale admin
