@@ -104,6 +104,11 @@ export Foundry__ApiKey=<key>   # ONE key for both — omit to use DefaultAzureCr
 dotnet test --no-build src/DocInt.slnx --filter "FullyQualifiedName~LiveSmokeTests"
 ```
 
+**Disconnect any corporate VPN client first.** Exporting the variables is not sufficient: a client
+that pins DNS to its own resolver (GlobalProtect, measured 2026-08-19) forges NXDOMAIN for every
+query these tests need, and the suite fails or self-skips with nothing wrong at either end. See the
+third trap under *Network reachability* for the one-line check.
+
 **One key, two hosts.** Both endpoints are surfaces of the single Foundry account `aif-eugo-swc`
 (`kind: AIServices`), which exposes one key pair — `key1`/`key2` rotate, they are not one key per
 API. `Foundry__ApiKey` authenticates both.
