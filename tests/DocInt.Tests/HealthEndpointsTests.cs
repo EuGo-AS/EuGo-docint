@@ -87,7 +87,7 @@ public class DegradedDependencyTests
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
-            builder.UseSetting("DocumentIntelligence:Endpoint", Endpoint);
+            builder.UseSetting("Foundry:DocumentIntelligenceEndpoint", Endpoint);
             builder.UseSetting($"{StartupProbeOptions.SectionName}:Enabled", "false");
             // Explicitly on: the base factory blanks this to false so the monitor never dials from
             // a test that is not about it, and this test is entirely about what the monitor reports.

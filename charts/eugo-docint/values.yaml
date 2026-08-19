@@ -36,22 +36,29 @@ serviceAccount:
   # and azure.workload.identity/use: "true" label on pods
   azureClientId: ""
 
-azure:
-  documentIntelligence:
-    # Sets env DocumentIntelligence__Endpoint; empty omits the var and the
-    # service answers engine_unconfigured per file (designed degraded mode)
-    endpoint: ""
-  openAI:
-    # Sets env AzureOpenAI__Endpoint, e.g. https://<resource>.openai.azure.com/ — the resource
-    # root only; the SDK appends /openai/deployments/<name>/chat/completions. Empty omits the
-    # var and image files answer engine_unconfigured (designed degraded mode)
-    endpoint: ""
-    # Sets env AzureOpenAI__DeploymentNameVision; empty here omits the var and the image's
-    # appsettings.json supplies model-eugo-docint-vision (a deployment alias, not a model
-    # name). A name is required once openAI.endpoint is set,
-    # so blanking it explicitly (via extraEnv) fails validation at pod start rather than
-    # failing every image request.
-    deploymentNameVision: ""
+# The one Azure AI Foundry account the service talks to. Two endpoints, not one: the account
+# advertises Document Intelligence only on its cognitiveservices host and Azure OpenAI only on its
+# openai host, and neither is derivable from the other -- so both are written down.
+#
+# There is deliberately no apiKey value here, and there never was one under the old azure.* block:
+# a key routed through values would sit in plaintext in the release manifest. In-cluster the pod
+# authenticates with Workload Identity -- set serviceAccount.azureClientId and leave keys unset.
+# See the README's "Credentials never go in values.yaml".
+foundry:
+  # Sets env Foundry__DocumentIntelligenceEndpoint,
+  # e.g. https://<resource>.cognitiveservices.azure.com/; empty omits the var and PDF/DOCX/PPTX/HTML
+  # answer engine_unconfigured per file (designed degraded mode)
+  documentIntelligenceEndpoint: ""
+  # Sets env Foundry__OpenAIEndpoint, e.g. https://<resource>.openai.azure.com/ — the resource
+  # root only; the SDK appends /openai/deployments/<name>/chat/completions. Empty omits the
+  # var and image files answer engine_unconfigured (designed degraded mode)
+  openAIEndpoint: ""
+  # Sets env Foundry__DeploymentNameVision; empty here omits the var and the image's
+  # appsettings.json supplies model-eugo-docint-vision (a deployment alias, not a model
+  # name). A name is required once openAIEndpoint is set,
+  # so blanking it explicitly (via extraEnv) fails validation at pod start rather than
+  # failing every image request.
+  deploymentNameVision: ""
 
 # Service limits. Each empty value omits its DocInt__* env var, leaving the image's
 # appsettings.json default in force — the numbers are deliberately not repeated here, so

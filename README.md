@@ -145,7 +145,7 @@ form a `:` becomes `__` — `DocInt:MaxFileBytes` → `DocInt__MaxFileBytes`.
 
 | Running as | Set values in |
 | --- | --- |
-| Local process / Aspire | `src/DocInt.Api/appsettings.json` for the non-secret knobs; **user-secrets** for endpoints and credentials — `dotnet user-secrets --project src/DocInt.Api set "DocumentIntelligence:ApiKey" "<key>"` |
+| Local process / Aspire | `src/DocInt.Api/appsettings.json` for the non-secret knobs; **user-secrets** for endpoints and credentials — `dotnet user-secrets --project src/DocInt.Api set "Foundry:ApiKey" "<key>"` |
 | Docker container | `-e Section__Key=value` — the image already carries `appsettings.json`; never bake credentials into an image |
 | Kubernetes | `charts/eugo-docint/values.yaml`, or `--set` at install time; credentials come from **Workload Identity**, never from values |
 
@@ -194,18 +194,21 @@ truth, nothing to drift.
       "RetryAfterSeconds": 5
     }
   },
-  // Both endpoints are blank by design — they are environment-specific and never committed.
-  // Supply them via user-secrets or env; blank keeps the stub-first path, where that engine's
-  // file kinds answer engine_unconfigured while the rest of the service works normally.
-  "DocumentIntelligence": {
-    // DocumentIntelligence__Endpoint, https://<resource>.cognitiveservices.azure.com/
+  // The one Azure AI Foundry account this service talks to. Both endpoints are blank by design —
+  // they are environment-specific and never committed. Supply them via user-secrets or env; blank
+  // keeps the stub-first path, where that surface's file kinds answer engine_unconfigured while
+  // the rest of the service works normally.
+  "Foundry": {
+    // Foundry__ApiKey — key1 or key2, and there is no third: a Foundry account has ONE key pair
+    // covering every API it exposes, so this single value authenticates both endpoints below.
+    // Never committed. Omit it and both surfaces use DefaultAzureCredential.
+    //
+    // Foundry__DocumentIntelligenceEndpoint, https://<resource>.cognitiveservices.azure.com/
     // Serves PDF/DOCX/PPTX/HTML via the built-in prebuilt-layout model — no deployment name.
-    "Endpoint": ""
-  },
-  "AzureOpenAI": {
-    // AzureOpenAI__Endpoint, https://<resource>.openai.azure.com/ — the resource root only;
+    "DocumentIntelligenceEndpoint": "",
+    // Foundry__OpenAIEndpoint, https://<resource>.openai.azure.com/ — the resource root only;
     // the SDK appends /openai/deployments/<name>/chat/completions. Serves JPG/PNG.
-    "Endpoint": "",
+    "OpenAIEndpoint": "",
     // A deployment ALIAS, not a model name — deliberately decoupled from the model behind it
     // (EuGo-infra docs/naming-convention.md, model-<project>-<role>). The model can change on
     // the Foundry side without touching this file; do not "correct" it to the model's name.
@@ -236,11 +239,10 @@ truth, nothing to drift.
 | `DocInt:Admission:BudgetBytes` | `1073741824` (1 GiB) | `docint.admission.budgetBytes` | The per-pod ceiling on bytes held in flight, and the only thing bounding pod memory: peak is roughly baseline + this. Must be ≥ `MaxRequestFileBytes` + 1 MiB (rejected at boot), since a budget under the largest admissible request could never serve it |
 | `DocInt:Admission:QueueTimeoutSeconds` | `10` | `docint.admission.queueTimeoutSeconds` | How long a request waits for budget before being shed. Most bursts drain well inside it and still answer 200 |
 | `DocInt:Admission:RetryAfterSeconds` | `5` | `docint.admission.retryAfterSeconds` | The `Retry-After` value on the 503 sent to a shed request. See [Request-level 400 and 503](#request-level-400-and-503) |
-| `DocumentIntelligence:Endpoint` | `""` | `azure.documentIntelligence.endpoint` | `https://<resource>.cognitiveservices.azure.com/`. Serves PDF/DOCX/PPTX/HTML through the built-in `prebuilt-layout` model — no deployment name involved. Blank leaves those kinds on `engine_unconfigured` |
-| `DocumentIntelligence:ApiKey` | *unset — not in `appsettings.json`* | none, by design | Omit it and the client uses `DefaultAzureCredential` |
-| `AzureOpenAI:Endpoint` | `""` | `azure.openAI.endpoint` | `https://<resource>.openai.azure.com/` — the resource root only; the SDK appends `/openai/deployments/<name>/chat/completions`. Serves JPG/PNG |
-| `AzureOpenAI:ApiKey` | *unset — not in `appsettings.json`* | none, by design | As above: absent means `DefaultAzureCredential` |
-| `AzureOpenAI:DeploymentNameVision` | `model-eugo-docint-vision` | `azure.openAI.deploymentNameVision` | A deployment **alias**, not a model name — decoupled on purpose (EuGo-infra `docs/naming-convention.md`, `model-<project>-<role>`) so the model behind it can change without touching the service. Don't "correct" it to the model's name |
+| `Foundry:ApiKey` | *unset — not in `appsettings.json`* | none, by design | `key1` **or** `key2` from the Foundry account — one key pair covers every API it exposes, so this single value authenticates both endpoints below. Omit it and **both** surfaces use `DefaultAzureCredential`; it is one decision for the account, so they cannot disagree |
+| `Foundry:DocumentIntelligenceEndpoint` | `""` | `foundry.documentIntelligenceEndpoint` | `https://<resource>.cognitiveservices.azure.com/`. Serves PDF/DOCX/PPTX/HTML through the built-in `prebuilt-layout` model — no deployment name involved. Blank leaves those kinds on `engine_unconfigured` |
+| `Foundry:OpenAIEndpoint` | `""` | `foundry.openAIEndpoint` | `https://<resource>.openai.azure.com/` — the resource root only; the SDK appends `/openai/deployments/<name>/chat/completions`. Serves JPG/PNG |
+| `Foundry:DeploymentNameVision` | `model-eugo-docint-vision` | `foundry.deploymentNameVision` | A deployment **alias**, not a model name — decoupled on purpose (EuGo-infra `docs/naming-convention.md`, `model-<project>-<role>`) so the model behind it can change without touching the service. Don't "correct" it to the model's name |
 | `DocInt:Metrics:Enabled` | `true` | `metrics.enabled` | The Prometheus scrape route. `false` removes it — a `404`, not an empty `200`, so a dashboard cannot read "off" as "no traffic" |
 | `DocInt:Metrics:Path` | `/metrics` | `metrics.path` | Route the exposition is served on; must be rooted, or the pod fails to boot. The chart's scrape annotation reads the same value |
 | `Serilog:MinimumLevel:Default` | `Information` (`Microsoft` and `System` at `Error`) | `extraEnv` | Log verbosity. Document *content* is never logged at any level |
@@ -250,8 +252,23 @@ truth, nothing to drift.
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | unset → SDK default (`grpc`) | `otel.protocol` | Many collectors accept only `http/protobuf`, which is why this is first-class rather than left to `extraEnv` |
 | `OTEL_SERVICE_NAME` | unset → the assembly name `DocInt.Api` | — (chart derives it from the release fullname) | Rendered by the chart **only** when `otel.endpoint` is set. Without it every namespace reports as `DocInt.Api` and two releases cannot be told apart |
 
-Both `ApiKey` keys are bound by the options classes but deliberately absent from the committed
-`appsettings.json` — they exist only in user-secrets or the environment.
+`Foundry:ApiKey` is bound by the options class but deliberately absent from the committed
+`appsettings.json` — it exists only in user-secrets or the environment.
+
+**One account, one key, two hosts.** The service talks to a single Azure AI Foundry account
+(`kind: AIServices`), which exposes exactly one key pair — `key1`/`key2` are a *rotation* pair, not
+one key per API. The endpoints stay two values because the account genuinely serves the two APIs on
+two hosts (Document Intelligence on `cognitiveservices`, Azure OpenAI on `openai`) and neither is
+derivable from the other.
+
+**Retired keys fail the service at boot.** `DocumentIntelligence:Endpoint`,
+`DocumentIntelligence:ApiKey`, `AzureOpenAI:Endpoint`, `AzureOpenAI:ApiKey` and
+`AzureOpenAI:DeploymentNameVision` are gone. If any of them still **carries a value** — in
+user-secrets, the environment, or a config file — the service refuses to start and names the
+replacement. That is deliberate: an unbound key would be silently ignored, and *absent* already
+means "use `DefaultAzureCredential`", so a stale value would leave one surface on an authentication
+leg nobody chose and surface much later as an endpoint or network failure. A retired key that is
+present but **blank** is inert and starts normally.
 
 **Derived, not directly settable.** Kestrel's max request body is `MaxRequestFileBytes + 1 MiB`
 (≈201 MiB at the defaults) — `DocInt:MaxRequestFileBytes` **is** the request-size knob; raise it
@@ -261,9 +278,9 @@ of the container's entire memory limit, which Kestrel used to be configured to a
 
 **Validated at boot, not on first request.** Every number above must be positive — the five
 `DocInt:*` limits, `DuplicateTracking:Capacity`, and the `Admission` budget and timings — both
-endpoints must be absolute URIs, and `DeploymentNameVision` is required once `AzureOpenAI:Endpoint`
-is set. Four *relationships* are enforced too, each because violating it fails silently at runtime
-rather than loudly at boot:
+endpoints must be absolute URIs, and `DeploymentNameVision` is required once `Foundry:OpenAIEndpoint`
+is set. A retired configuration key carrying a value fails here too. Four *relationships* are
+enforced as well, each because violating it fails silently at runtime rather than loudly at boot:
 
 - `MaxRequestFileBytes` ≥ `MaxFileBytes` — otherwise one maximum-size file is inadmissible.
 - `Admission:BudgetBytes` ≥ `MaxRequestFileBytes` + 1 MiB — otherwise a live request asks the
@@ -317,9 +334,9 @@ DocInt__StartupProbe__Enabled=false dotnet run --project src/DocInt.Api
 Note that `src/DocInt.Api/appsettings.Development.json` is untracked and typically carries the real
 endpoints, so on a developer machine this is the difference between `dotnet run` starting and not.
 
-**Credentials never go in `values.yaml`.** The chart has no `ApiKey` value on purpose: a key
+**Credentials never go in `values.yaml`.** The chart has no `apiKey` value on purpose: a key
 routed through `extraEnv` would sit in plaintext in the release manifest. In-cluster the pod
-authenticates with Workload Identity — set `serviceAccount.azureClientId` and leave the keys
+authenticates with Workload Identity — set `serviceAccount.azureClientId` and leave the key
 unset. Note that `DefaultAzureCredential` in a container cannot fall back to the Azure CLI (the
 chiseled image has no shell), so a container needs a real identity leg or an API key.
 
@@ -466,8 +483,8 @@ cluster-internal by design. Probes: liveness `/alive`, readiness `/health`.
 helm install docint charts/eugo-docint \
   --set image.repository=<acr>.azurecr.io/eugo-docint \
   --set serviceAccount.azureClientId=<workload-identity-client-id> \
-  --set azure.documentIntelligence.endpoint=https://<di>.cognitiveservices.azure.com/ \
-  --set azure.openAI.endpoint=https://<aoai>.openai.azure.com/
+  --set foundry.documentIntelligenceEndpoint=https://<resource>.cognitiveservices.azure.com/ \
+  --set foundry.openAIEndpoint=https://<resource>.openai.azure.com/
 # in-cluster URL: http://docint-eugo-docint.<namespace>.svc:8090/v1/extract
 ```
 
@@ -475,6 +492,21 @@ Versioning: chart and image share `major.minor`; the chart patch moves independe
 (`chart-v*` tags release chart-only changes). CI stamps `appVersion` — never hand-edit it.
 Tag `vX.Y.Z` → image + chart to ACR; tag `chart-vX.Y.P` → chart only. Cluster provisioning
 (AKS, ACR, identity federation) stays in EuGo-infra.
+
+**Cut the image tag first when `major.minor` moves.** The chart job resolves `appVersion` by
+searching for an existing image tag matching the chart's `major.minor`
+(`git tag -l "v<major>.<minor>.*"`) and fails the release with *"no image tag … to pair this chart
+with"* when none exists. The chart is at `0.2.0`, so a `chart-v0.2.*` tag cannot publish until
+`v0.2.0` has been cut. Nothing in the repository can be edited to satisfy this — it is a
+tagging-order constraint, and it is invisible until CI runs.
+
+**Don't install chart `0.2.x` over a `0.1.x` image.** The chart renders `Foundry__*` variables,
+which only the `0.2.x` image reads; a `0.1.x` image reads the retired `DocumentIntelligence__*` /
+`AzureOpenAI__*` names and would come up with **no** endpoints configured — every Azure-served kind
+answering `engine_unconfigured`, with no boot failure to catch it, because the retired-key check
+ships in the new image. Since `image.tag: ""` means `.Chart.AppVersion` and `appVersion` is stamped
+at package time, an unpinned install from a working tree whose `appVersion` still reads `0.1.0`
+hits exactly this. Version skew was harmless before this change; it is not any more.
 
 **Release prerequisites** — before a tag push can publish, the GitHub repo needs four
 *variables* (Settings → Secrets and variables → Actions → Variables; not secrets — auth is

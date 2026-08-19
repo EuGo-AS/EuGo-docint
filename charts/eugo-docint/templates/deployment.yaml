@@ -59,14 +59,14 @@ spec:
             periodSeconds: 10
             failureThreshold: 3
           {{- $env := list }}
-          {{- with .Values.azure.documentIntelligence.endpoint }}
-          {{- $env = append $env (dict "name" "DocumentIntelligence__Endpoint" "value" .) }}
+          {{- with .Values.foundry.documentIntelligenceEndpoint }}
+          {{- $env = append $env (dict "name" "Foundry__DocumentIntelligenceEndpoint" "value" .) }}
           {{- end }}
-          {{- with .Values.azure.openAI.endpoint }}
-          {{- $env = append $env (dict "name" "AzureOpenAI__Endpoint" "value" .) }}
+          {{- with .Values.foundry.openAIEndpoint }}
+          {{- $env = append $env (dict "name" "Foundry__OpenAIEndpoint" "value" .) }}
           {{- end }}
-          {{- with .Values.azure.openAI.deploymentNameVision }}
-          {{- $env = append $env (dict "name" "AzureOpenAI__DeploymentNameVision" "value" .) }}
+          {{- with .Values.foundry.deploymentNameVision }}
+          {{- $env = append $env (dict "name" "Foundry__DeploymentNameVision" "value" .) }}
           {{- end }}
           {{- /* Deliberately not `with`, which the Azure endpoints above can safely use: `with`
                  treats 0 as empty, so `--set docint.maxFileBytes=0` would omit the var and leave

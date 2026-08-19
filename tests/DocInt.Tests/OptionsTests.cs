@@ -22,8 +22,45 @@ public class OptionsTests
         Assert.Equal(209_715_200, o.MaxRequestFileBytes);
         Assert.Equal(209_715_200L + 1_048_576, o.MaxRequestBytes);
         Assert.Equal("model-eugo-docint-vision",
-            factory.Services.GetRequiredService<IOptions<AzureOpenAIOptions>>().Value.DeploymentNameVision);
+            factory.Services.GetRequiredService<IOptions<FoundryOptions>>().Value.DeploymentNameVision);
     }
+
+    // One resource, one key, two API surfaces, one deployment alias. The four values bind from a
+    // single section because they describe a single Azure AI Foundry account: its key pair
+    // authenticates every surface it exposes, so a per-surface key was only ever a second name for
+    // the same secret — and the name that went unset decided which surface quietly fell back to
+    // DefaultAzureCredential.
+    [Fact]
+    public void Foundry_section_binds_the_whole_resource()
+    {
+        using var factory = new FoundryFactory();
+        var o = factory.Services.GetRequiredService<IOptions<FoundryOptions>>().Value;
+        Assert.Equal("k1", o.ApiKey);
+        Assert.Equal("https://di.example/", o.DocumentIntelligenceEndpoint);
+        Assert.Equal("https://aoai.example/", o.OpenAIEndpoint);
+        Assert.Equal("model-eugo-docint-vision", o.DeploymentNameVision);
+    }
+
+    private sealed class FoundryFactory : DocIntAppFactory
+    {
+        protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
+        {
+            builder.UseSetting($"{FoundryOptions.SectionName}:ApiKey", "k1");
+            builder.UseSetting($"{FoundryOptions.SectionName}:DocumentIntelligenceEndpoint", "https://di.example/");
+            builder.UseSetting($"{FoundryOptions.SectionName}:OpenAIEndpoint", "https://aoai.example/");
+            base.ConfigureWebHost(builder);
+        }
+    }
+
+    // The two surfaces stay independently optional: the account advertises Document Intelligence
+    // only on cognitiveservices and Azure OpenAI only on openai, so one host configured without
+    // the other is a legal deployment, not a half-finished one.
+    [Theory]
+    [InlineData("Foundry:DocumentIntelligenceEndpoint")]
+    [InlineData("Foundry:OpenAIEndpoint")]
+    public void Either_endpoint_alone_is_a_valid_configuration(string key) =>
+        Validate((key, "https://one.example/"),
+                 ("Foundry:DeploymentNameVision", "model-eugo-docint-vision"));
 
     // The vision deployment name is required only once an endpoint exists: AzureVisionChatClient
     // returns early on a blank endpoint, so a name is meaningless without one. Blank-with-endpoint
@@ -34,13 +71,13 @@ public class OptionsTests
     public void Blank_vision_deployment_with_endpoint_fails_validation()
     {
         var ex = Assert.Throws<OptionsValidationException>(() => Validate(
-            ("AzureOpenAI:Endpoint", "https://aoai.example"),
-            ("AzureOpenAI:DeploymentNameVision", "")));
+            ("Foundry:OpenAIEndpoint", "https://aoai.example"),
+            ("Foundry:DeploymentNameVision", "")));
         Assert.Contains("DeploymentNameVision", ex.Message);
 
         // Control: same endpoint, name present — proves the blank name is what fails, not the helper.
-        Validate(("AzureOpenAI:Endpoint", "https://aoai.example"),
-            ("AzureOpenAI:DeploymentNameVision", "model-eugo-docint-vision"));
+        Validate(("Foundry:OpenAIEndpoint", "https://aoai.example"),
+            ("Foundry:DeploymentNameVision", "model-eugo-docint-vision"));
     }
 
     // The chart renders these limits so a 0 reaches the pod rather than being swallowed
@@ -98,7 +135,7 @@ public class OptionsTests
     public void Blank_vision_deployment_without_endpoint_still_boots()
     {
         using var factory = new BlankVisionDeploymentFactory(endpoint: null);
-        var o = factory.Services.GetRequiredService<IOptions<AzureOpenAIOptions>>().Value;
+        var o = factory.Services.GetRequiredService<IOptions<FoundryOptions>>().Value;
         Assert.True(string.IsNullOrEmpty(o.DeploymentNameVision));
     }
 
@@ -106,8 +143,9 @@ public class OptionsTests
     {
         protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
         {
-            builder.UseSetting("AzureOpenAI:DeploymentNameVision", "");
-            if (endpoint is not null) builder.UseSetting("AzureOpenAI:Endpoint", endpoint);
+            builder.UseSetting($"{FoundryOptions.SectionName}:DeploymentNameVision", "");
+            if (endpoint is not null)
+                builder.UseSetting($"{FoundryOptions.SectionName}:OpenAIEndpoint", endpoint);
             base.ConfigureWebHost(builder);
         }
     }
@@ -117,9 +155,9 @@ public class OptionsTests
     {
         using var factory = new BindingFactory();
         var docint = factory.Services.GetRequiredService<IOptions<DocIntOptions>>().Value;
-        var di = factory.Services.GetRequiredService<IOptions<DocumentIntelligenceOptions>>().Value;
+        var foundry = factory.Services.GetRequiredService<IOptions<FoundryOptions>>().Value;
         Assert.Equal(3, docint.MaxFilesPerRequest);
-        Assert.Equal("https://di.example", di.Endpoint);
+        Assert.Equal("https://di.example", foundry.DocumentIntelligenceEndpoint);
     }
 
     private sealed class BindingFactory : DocIntAppFactory
@@ -127,7 +165,7 @@ public class OptionsTests
         protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
         {
             builder.UseSetting("DocInt:MaxFilesPerRequest", "3");
-            builder.UseSetting("DocumentIntelligence:Endpoint", "https://di.example");
+            builder.UseSetting($"{FoundryOptions.SectionName}:DocumentIntelligenceEndpoint", "https://di.example");
             base.ConfigureWebHost(builder);
         }
     }
@@ -141,8 +179,8 @@ public class OptionsTests
     // with no endpoint configured at all.
 
     [Theory]
-    [InlineData("DocumentIntelligence:Endpoint")]
-    [InlineData("AzureOpenAI:Endpoint")]
+    [InlineData("Foundry:DocumentIntelligenceEndpoint")]
+    [InlineData("Foundry:OpenAIEndpoint")]
     public void Malformed_endpoint_fails_host_startup(string key)
     {
         using var factory = new InvalidEndpointFactory(key);

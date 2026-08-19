@@ -98,12 +98,23 @@ Azure-stubbed tests are the default; the live suite (`LiveSmokeTests`) self-skip
 
 ```bash
 export DOCINT_LIVE_TESTS=1
-export DocumentIntelligence__Endpoint=https://<di-resource>.cognitiveservices.azure.com/
-export DocumentIntelligence__ApiKey=<key>        # omit to use DefaultAzureCredential (az login)
-export AzureOpenAI__Endpoint=https://<aoai-resource>.openai.azure.com/
-export AzureOpenAI__ApiKey=<key>                 # omit to use DefaultAzureCredential
+export Foundry__DocumentIntelligenceEndpoint=https://<resource>.cognitiveservices.azure.com/
+export Foundry__OpenAIEndpoint=https://<resource>.openai.azure.com/
+export Foundry__ApiKey=<key>   # ONE key for both — omit to use DefaultAzureCredential (az login)
 dotnet test --no-build src/DocInt.slnx --filter "FullyQualifiedName~LiveSmokeTests"
 ```
+
+**One key, two hosts.** Both endpoints are surfaces of the single Foundry account `aif-eugo-swc`
+(`kind: AIServices`), which exposes one key pair — `key1`/`key2` rotate, they are not one key per
+API. `Foundry__ApiKey` authenticates both.
+
+**Use a shell with no leftovers.** `DocumentIntelligence__*` and `AzureOpenAI__*` are retired: if
+one still carries a value the host **refuses to start**, naming the replacement. That is by design
+— an unbound key would be ignored, and absent already means `DefaultAzureCredential`, so a stale
+value would silently switch one surface to a different credential. Two consequences worth knowing:
+the failure hits **every** test that builds the app, not just the live ones; and the live tests'
+skip gates read `Foundry__*` from the environment directly, so a stale export leaves them reporting
+SKIPPED rather than failing.
 
 **Network reachability (verified 2026-08-07).** The provisioned EuGo Foundry resource
 `aif-eugo-swc` (Sweden Central) has `publicNetworkAccess: Disabled` — it answers only through

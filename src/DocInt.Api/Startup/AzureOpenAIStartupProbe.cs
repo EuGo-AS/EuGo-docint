@@ -20,7 +20,7 @@ public sealed class AzureOpenAIStartupProbe : IStartupProbe
 {
     private const string Ping = "ping";
 
-    private readonly IOptions<AzureOpenAIOptions> _options;
+    private readonly IOptions<FoundryOptions> _options;
     private readonly Lazy<ChatClient> _chat;
 
     /// <remarks>
@@ -28,21 +28,23 @@ public sealed class AzureOpenAIStartupProbe : IStartupProbe
     /// hosted-service resolution, ahead of ValidateOnStart, so this constructor must not be able
     /// to throw — which includes not reading <c>options.Value</c>.
     /// </remarks>
-    public AzureOpenAIStartupProbe(IOptions<AzureOpenAIOptions> options)
+    public AzureOpenAIStartupProbe(IOptions<FoundryOptions> options)
     {
         _options = options;
         _chat = new Lazy<ChatClient>(() => Create(options.Value));
     }
 
-    private static ChatClient Create(AzureOpenAIOptions o)
+    private static ChatClient Create(FoundryOptions o)
     {
         // See DocumentIntelligenceStartupProbe: the check owns retry, so the SDK must not add its
         // own on top.
         var clientOptions = new AzureOpenAIClientOptions { RetryPolicy = new ClientRetryPolicy(maxRetries: 0) };
-        var uri = new Uri(o.Endpoint!);
-        var client = string.IsNullOrWhiteSpace(o.ApiKey)
-            ? new AzureOpenAIClient(uri, new DefaultAzureCredential(), clientOptions)
-            : new AzureOpenAIClient(uri, new ApiKeyCredential(o.ApiKey), clientOptions);
+        var uri = new Uri(o.OpenAIEndpoint!);
+        // ApiKeyCredential rather than the AzureKeyCredential the other three sites use: this SDK
+        // wants System.ClientModel's type. Only the branch is shared, which is the part that drifts.
+        var client = FoundryCredential.UsesApiKey(o)
+            ? new AzureOpenAIClient(uri, new ApiKeyCredential(o.ApiKey!), clientOptions)
+            : new AzureOpenAIClient(uri, new DefaultAzureCredential(), clientOptions);
         return client.GetChatClient(o.DeploymentNameVision);
     }
 
@@ -51,7 +53,7 @@ public sealed class AzureOpenAIStartupProbe : IStartupProbe
     public string Service => ServiceName;
 
     /// <summary>Read after validation has passed; registered only when non-blank.</summary>
-    public string Endpoint => _options.Value.Endpoint ?? "";
+    public string Endpoint => _options.Value.OpenAIEndpoint ?? "";
 
     public async Task ProbeAsync(CancellationToken ct)
     {

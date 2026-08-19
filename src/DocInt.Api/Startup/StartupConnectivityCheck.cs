@@ -172,23 +172,26 @@ public static class StartupConnectivityCheckExtensions
     {
         var dependencyChecks = DependencyCheckEnabled(builder);
 
-        if (IsSet(builder, $"{DocumentIntelligenceOptions.SectionName}:Endpoint"))
+        // One account, two surfaces: the probes stay per-surface because reachability is per-host —
+        // the private endpoint, DNS and TLS are resolved separately for each — and the health-check
+        // names below describe the surface being dialled, not the resource behind it.
+        if (IsSet(builder, $"{FoundryOptions.SectionName}:DocumentIntelligenceEndpoint"))
         {
             builder.Services.AddSingleton<IStartupProbe, DocumentIntelligenceStartupProbe>();
             if (dependencyChecks)
             {
                 AddDependencyCheck(builder, DocumentIntelligenceStartupProbe.ServiceName,
-                    builder.Configuration[$"{DocumentIntelligenceOptions.SectionName}:Endpoint"]!);
+                    builder.Configuration[$"{FoundryOptions.SectionName}:DocumentIntelligenceEndpoint"]!);
             }
         }
 
-        if (IsSet(builder, $"{AzureOpenAIOptions.SectionName}:Endpoint"))
+        if (IsSet(builder, $"{FoundryOptions.SectionName}:OpenAIEndpoint"))
         {
             builder.Services.AddSingleton<IStartupProbe, AzureOpenAIStartupProbe>();
             if (dependencyChecks)
             {
                 AddDependencyCheck(builder, AzureOpenAIStartupProbe.ServiceName,
-                    builder.Configuration[$"{AzureOpenAIOptions.SectionName}:Endpoint"]!);
+                    builder.Configuration[$"{FoundryOptions.SectionName}:OpenAIEndpoint"]!);
             }
         }
 

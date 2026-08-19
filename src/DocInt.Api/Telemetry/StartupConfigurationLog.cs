@@ -19,12 +19,15 @@ public static class StartupConfigurationLog
     /// </summary>
     private static readonly string[] Roots =
     [
-        "DocInt", "DocumentIntelligence", "AzureOpenAI",
+        "DocInt", "Foundry",
         "Serilog", "Logging", "Kestrel", "AllowedHosts",
         "ASPNETCORE_ENVIRONMENT", "OTEL_EXPORTER_OTLP_ENDPOINT",
     ];
 
-    /// <summary>Substrings that mark a key as carrying a credential. Matched on the last segment.</summary>
+    /// <summary>
+    /// Substrings that mark a key as carrying a credential. Matched on the last segment, which is
+    /// why the Foundry rename needed nothing here: <c>Foundry:ApiKey</c> still ends in "key".
+    /// </summary>
     private static readonly string[] SecretMarkers =
     [
         "key", "secret", "password", "pwd", "token", "connectionstring", "sas", "credential",

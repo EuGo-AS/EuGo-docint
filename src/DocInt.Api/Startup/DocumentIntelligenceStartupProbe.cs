@@ -14,7 +14,7 @@ namespace DocInt.Api.Startup;
 /// </summary>
 public sealed class DocumentIntelligenceStartupProbe : IStartupProbe
 {
-    private readonly IOptions<DocumentIntelligenceOptions> _options;
+    private readonly IOptions<FoundryOptions> _options;
     private readonly Lazy<DocumentIntelligenceAdministrationClient> _client;
 
     /// <remarks>
@@ -24,7 +24,7 @@ public sealed class DocumentIntelligenceStartupProbe : IStartupProbe
     /// the failure mid-resolution, which pre-empts the validator's clean "must be an absolute URI"
     /// message and leaves Host with no hosted-service list, turning disposal into its own error.
     /// </remarks>
-    public DocumentIntelligenceStartupProbe(IOptions<DocumentIntelligenceOptions> options)
+    public DocumentIntelligenceStartupProbe(IOptions<FoundryOptions> options)
     {
         _options = options;
         _client = new Lazy<DocumentIntelligenceAdministrationClient>(() => Create(options.Value));
@@ -35,18 +35,18 @@ public sealed class DocumentIntelligenceStartupProbe : IStartupProbe
     public string Service => ServiceName;
 
     /// <summary>Read after validation has passed; registered only when non-blank.</summary>
-    public string Endpoint => _options.Value.Endpoint ?? "";
+    public string Endpoint => _options.Value.DocumentIntelligenceEndpoint ?? "";
 
     public Task ProbeAsync(CancellationToken ct) => _client.Value.GetResourceDetailsAsync(ct);
 
-    private static DocumentIntelligenceAdministrationClient Create(DocumentIntelligenceOptions o)
+    private static DocumentIntelligenceAdministrationClient Create(FoundryOptions o)
     {
         // MaxRetries = 0 because the check owns retry: leaving the SDK's default 3 in place would
         // turn the configured 3 attempts into 9-16 and blow past the pod's startup window.
         var clientOptions = new DocumentIntelligenceClientOptions { Retry = { MaxRetries = 0 } };
-        var uri = new Uri(o.Endpoint!);
-        return string.IsNullOrWhiteSpace(o.ApiKey)
-            ? new DocumentIntelligenceAdministrationClient(uri, new DefaultAzureCredential(), clientOptions)
-            : new DocumentIntelligenceAdministrationClient(uri, new AzureKeyCredential(o.ApiKey), clientOptions);
+        var uri = new Uri(o.DocumentIntelligenceEndpoint!);
+        return FoundryCredential.UsesApiKey(o)
+            ? new DocumentIntelligenceAdministrationClient(uri, new AzureKeyCredential(o.ApiKey!), clientOptions)
+            : new DocumentIntelligenceAdministrationClient(uri, new DefaultAzureCredential(), clientOptions);
     }
 }

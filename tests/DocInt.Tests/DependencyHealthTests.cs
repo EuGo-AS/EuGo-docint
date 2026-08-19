@@ -241,8 +241,8 @@ public class DependencyHealthRegistrationTests
     {
         protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
         {
-            builder.UseSetting("DocumentIntelligence:Endpoint", "https://di.example/");
-            builder.UseSetting("AzureOpenAI:Endpoint", "https://aoai.example/");
+            builder.UseSetting("Foundry:DocumentIntelligenceEndpoint", "https://di.example/");
+            builder.UseSetting("Foundry:OpenAIEndpoint", "https://aoai.example/");
             builder.UseSetting($"{DependencyCheckOptions.SectionName}:Enabled", enabled ? "true" : "false");
             base.ConfigureWebHost(builder);   // leaves the startup check disabled, so nothing is dialled
         }

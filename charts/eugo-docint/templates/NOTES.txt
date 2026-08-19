@@ -5,13 +5,13 @@ In-cluster API endpoint:
 
 Health:  /health (readiness, all checks)   /alive (liveness, self only)
 Info:    /info
-{{- if not .Values.azure.documentIntelligence.endpoint }}
+{{- if not .Values.foundry.documentIntelligenceEndpoint }}
 
-NOTE: azure.documentIntelligence.endpoint is unset - PDF/DOCX/PPTX/HTML
+NOTE: foundry.documentIntelligenceEndpoint is unset - PDF/DOCX/PPTX/HTML
 extraction will answer engine_unconfigured per file.
 {{- end }}
-{{- if not .Values.azure.openAI.endpoint }}
+{{- if not .Values.foundry.openAIEndpoint }}
 
-NOTE: azure.openAI.endpoint is unset - image description will answer
+NOTE: foundry.openAIEndpoint is unset - image description will answer
 engine_unconfigured per file.
 {{- end }}

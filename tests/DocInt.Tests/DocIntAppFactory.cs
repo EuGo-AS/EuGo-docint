@@ -21,8 +21,8 @@ public class DocIntAppFactory : WebApplicationFactory<Program>
         // and false locally, silently turning the unconfigured-path tests into live-Azure tests.
         // Blanking here restores it. Only where a subclass has not asked for a value: subclasses
         // call base last, so GetSetting already sees their UseSetting.
-        Blank(builder, $"{DocumentIntelligenceOptions.SectionName}:Endpoint");
-        Blank(builder, $"{AzureOpenAIOptions.SectionName}:Endpoint");
+        Blank(builder, $"{FoundryOptions.SectionName}:DocumentIntelligenceEndpoint");
+        Blank(builder, $"{FoundryOptions.SectionName}:OpenAIEndpoint");
         // Same reason, one layer up: the startup connectivity check must not dial anything from a
         // test unless that test is about the check. StartupConnectivityCheckTests turns it back on.
         Blank(builder, $"{StartupProbeOptions.SectionName}:Enabled", "false");

@@ -27,20 +27,36 @@ public sealed class DocIntOptions
     public long MaxRequestBytes => MaxRequestFileBytes + 1_048_576;
 }
 
-public sealed class DocumentIntelligenceOptions
+/// <summary>
+/// The one Azure AI Foundry account this service talks to: one key, two API surfaces, one
+/// deployment alias.
+/// </summary>
+/// <remarks>
+/// A single class rather than one per surface, because a Foundry account (kind AIServices) exposes
+/// exactly one key pair — key1/key2 are a rotation pair, not one key per API — and every surface it
+/// advertises authenticates with either. Modelling it as two resources gave the same secret two
+/// names, and setting only one of them left the other surface silently on DefaultAzureCredential
+/// against the very same account: a different authentication leg, reported later as an endpoint or
+/// network failure. Sharing one <see cref="ApiKey"/> is what makes that state unrepresentable.
+///
+/// The endpoints stay two values because the account genuinely serves the two APIs on two hosts —
+/// Document Intelligence on cognitiveservices (advertised as FormRecognizer), Azure OpenAI on
+/// openai — and neither is derivable from the other: custom subdomains, sovereign suffixes and
+/// private-endpoint DNS all defeat building one from a resource name.
+/// </remarks>
+public sealed class FoundryOptions
 {
-    public const string SectionName = "DocumentIntelligence";
+    public const string SectionName = "Foundry";
 
-    public string? Endpoint { get; set; }
+    /// <summary>key1 or key2 from the account. Blank means DefaultAzureCredential, for both surfaces.</summary>
     public string? ApiKey { get; set; }
-}
 
-public sealed class AzureOpenAIOptions
-{
-    public const string SectionName = "AzureOpenAI";
+    /// <summary>https://&lt;resource&gt;.cognitiveservices.azure.com/ — serves PDF/DOCX/PPTX/HTML.</summary>
+    public string? DocumentIntelligenceEndpoint { get; set; }
 
-    public string? Endpoint { get; set; }
-    public string? ApiKey { get; set; }
+    /// <summary>https://&lt;resource&gt;.openai.azure.com/ — the resource root only; serves JPG/PNG.</summary>
+    public string? OpenAIEndpoint { get; set; }
+
     // "" is absence, not a default: the shipped name lives only in appsettings.json, and a blank
     // value is legal exactly while no endpoint is configured (the stub-first path).
     public string DeploymentNameVision { get; set; } = "";
@@ -258,18 +274,26 @@ public static class OptionsExtensions
                 $"{AdmissionOptions.SectionName}:BudgetBytes must be at least "
                 + "DocInt:MaxRequestBytes, or a legal request could never be admitted")
             .ValidateOnStart();
-        builder.Services.AddOptions<DocumentIntelligenceOptions>()
-            .Bind(builder.Configuration.GetSection(DocumentIntelligenceOptions.SectionName))
-            .Validate(o => string.IsNullOrWhiteSpace(o.Endpoint) || Uri.TryCreate(o.Endpoint, UriKind.Absolute, out _),
-                $"{DocumentIntelligenceOptions.SectionName}:Endpoint must be an absolute URI")
-            .ValidateOnStart();
-        builder.Services.AddOptions<AzureOpenAIOptions>()
-            .Bind(builder.Configuration.GetSection(AzureOpenAIOptions.SectionName))
-            .Validate(o => string.IsNullOrWhiteSpace(o.Endpoint) || Uri.TryCreate(o.Endpoint, UriKind.Absolute, out _),
-                $"{AzureOpenAIOptions.SectionName}:Endpoint must be an absolute URI")
-            .Validate(o => string.IsNullOrWhiteSpace(o.Endpoint) || !string.IsNullOrWhiteSpace(o.DeploymentNameVision),
-                $"{AzureOpenAIOptions.SectionName}:DeploymentNameVision is required when "
-                + $"{AzureOpenAIOptions.SectionName}:Endpoint is set")
+        // Registered against FoundryOptions so it runs in the same ValidateOnStart pass as the
+        // rules below: a retired key left behind is a configuration error like any other, and it
+        // must be reported as one rather than as the endpoint failure it would otherwise become.
+        builder.Services.AddSingleton<IValidateOptions<FoundryOptions>>(
+            new RetiredFoundryKeys(builder.Configuration));
+        builder.Services.AddOptions<FoundryOptions>()
+            .Bind(builder.Configuration.GetSection(FoundryOptions.SectionName))
+            // Each endpoint is independently optional: the account serves the two APIs on two
+            // hosts, and configuring one without the other is a legal deployment — the unserved
+            // kinds answer engine_unconfigured per file rather than failing the request.
+            .Validate(o => string.IsNullOrWhiteSpace(o.DocumentIntelligenceEndpoint)
+                        || Uri.TryCreate(o.DocumentIntelligenceEndpoint, UriKind.Absolute, out _),
+                $"{FoundryOptions.SectionName}:DocumentIntelligenceEndpoint must be an absolute URI")
+            .Validate(o => string.IsNullOrWhiteSpace(o.OpenAIEndpoint)
+                        || Uri.TryCreate(o.OpenAIEndpoint, UriKind.Absolute, out _),
+                $"{FoundryOptions.SectionName}:OpenAIEndpoint must be an absolute URI")
+            .Validate(o => string.IsNullOrWhiteSpace(o.OpenAIEndpoint)
+                        || !string.IsNullOrWhiteSpace(o.DeploymentNameVision),
+                $"{FoundryOptions.SectionName}:DeploymentNameVision is required when "
+                + $"{FoundryOptions.SectionName}:OpenAIEndpoint is set")
             .ValidateOnStart();
         return builder;
     }

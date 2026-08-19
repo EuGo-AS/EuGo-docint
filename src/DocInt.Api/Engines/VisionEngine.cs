@@ -11,7 +11,7 @@ public sealed class VisionEngine(IVisionChatClient client) : IExtractionEngine
     {
         if (!client.IsConfigured)
             return Errors.For(file, ErrorCodes.EngineUnconfigured,
-                "vision engine is not configured: set AzureOpenAI:Endpoint");
+                "vision engine is not configured: set Foundry:OpenAIEndpoint");
         var description = await client.DescribeImageAsync(
             VisionPrompt.System,
             BinaryData.FromBytes(file.Bytes),
