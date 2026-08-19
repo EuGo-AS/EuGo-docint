@@ -412,3 +412,6 @@ FodyWeavers.xsd
 
 # superpowers SDD scratch (ledger, briefs, reports)
 .superpowers/
+
+# graphify knowledge-graph output (regenerate with /graphify)
+graphify-out/
