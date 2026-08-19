@@ -7,76 +7,101 @@
 
 The Tailscale subnet router `vm-eugo-vpn-swc` is the developer path into `vnet-eugo-hub-swc`, and
 it is the only path for a workstation: every EuGo Azure resource of consequence is private-endpoint
-only. It stopped resolving names, and the failure survived a repair attempt, so it is worth stating
-exactly what is and is not broken (verified 2026-08-18, with the DNS row re-measured 2026-08-19):
+only. Names stopped resolving from a workstation, and two successive diagnoses of *why* were wrong,
+so the table below states only what has been measured, and from where.
+
+**Verified 2026-08-19, on the VM and from a workstation:**
 
 | Layer | State |
 | --- | --- |
-| Tunnel | Healthy — `RouteAll` and `CorpDNS` on, router online |
-| Route `10.60.0.0/16` | Healthy — advertised as a primary route; TCP 443 reaches `10.60.5.4`, `.5`, `.6` |
+| Tunnel | Healthy — router online, ICMP and TCP reach it |
+| Route `10.60.0.0/16` | Healthy — advertised; TCP 443 reaches `10.60.5.4`, `.5`, `.6` |
 | TLS at the private endpoints | Healthy — Microsoft cert, SANs `*.cognitiveservices.azure.com` / `*.openai.azure.com` |
 | Private DNS zones | Healthy — linked to both `vnet-eugo-hub-swc` and `vnet-eugo-spoke-swc` |
-| **DNS service on the router** | **Regressed since 2026-08-18 — an in-scope query to `100.111.128.91` now returns NXDOMAIN (see the dated observation below)** |
+| DNS service on the router | **Healthy** — `dnsmasq` answers on `100.111.128.91:53` with `10.60.5.4` and `10.60.5.5` for the two Foundry hosts |
+| Provisioning of the router | **Healthy** — cloud-init installs `dnsmasq`, writes `/etc/dnsmasq.d/`, and runs `tailscale up --advertise-routes=10.60.0.0/16` |
 | **Split DNS suffix coverage** | **Incomplete — five services are registered only in `privatelink.*` form** |
-| **Reproducibility** | **Unverified — the working configuration is not known to survive a rebuild** |
+| **Auth-key handling** | **Exposed — the cloud-config carries a Tailscale auth key in plaintext** |
+| **Detection** | **Absent — nothing notices when this path breaks** |
 
-The VM was rebuilt and came back with a new tailnet address (`100.111.128.91`, replacing
-`100.77.69.84`), while tailnet Split DNS kept naming the old one — so every query went to a node
-that no longer existed. That has since been corrected.
+### The workstation failure was never the router
 
-**A correction to an earlier reading of this incident**, recorded because it cost time and would
-cost it again: the router was diagnosed as "running no resolver" on the strength of `google.com`
-failing through it. That was a bad probe. `dnsmasq` here is a *split* resolver — it is configured
-with per-suffix upstreams and no general one, so refusing a public name is correct behaviour, not a
-fault. Probing it with a name it is meant to serve shows it working. Any future diagnosis of this
-path must use an in-scope name.
+A workstation on this tailnet cannot resolve the private names, but the cause is local to the
+workstation and outside this repository's reach: **a second VPN client intercepts every UDP port 53
+query and answers it itself**, so queries never reach the router at all.
 
-**Re-measured 2026-08-19 from a workstation on the tailnet, and it no longer matches the table's
-earlier reading.** The route half is still healthy — TCP 443 to `10.60.5.4` succeeds — but
-`aif-eugo-swc.cognitiveservices.azure.com`, an **in-scope** name and therefore a valid probe under
-the rule above, returns NXDOMAIN when queried directly at `100.111.128.91`; so does the
-`.openai.azure.com` hostname, and so does the `privatelink.*` form. Split DNS in the admin console
-is correct and points at the live router. Two details make this a regression rather than a
-contradiction of the 2026-08-18 finding: that finding was taken from a different vantage point
-(on the VM), and the node now presents to the tailnet as **`vm-eugo-vpn-swc-1`**, not
-`vm-eugo-vpn-swc`. A renamed instance carrying a working route but no working resolver is precisely
-the failure mode this change exists to prevent, so treat it as evidence for tasks 2.1 and 2.3
-rather than as a new root cause. It is deliberately **not** recorded as a diagnosis of *why*
-`dnsmasq` is not answering: `Resolve-DnsName` collapses NXDOMAIN, REFUSED and no-config into one
-message. A follow-up probe does narrow it, though, and the narrowing is worth having: the router answers on port 53 and returns **NXDOMAIN for every name it is asked**, the in-scope Foundry hostname and `google.com` alike. Under this design's own D1 rule that is the discriminator — a correctly configured split resolver refuses a public name while answering an in-scope one, so identical treatment of both means no per-suffix rules are loaded at all. The shape that produces it is `dnsmasq` running with `no-resolv` and no `server=` lines: the process survived, its `/etc/dnsmasq.d/` configuration did not. That is a strong inference rather than proof — it is read from rcodes through Windows `nslookup`, which can blur REFUSED into "Non-existent domain" — and confirming it costs one read-only look on the VM (`systemctl status dnsmasq`, `ls /etc/dnsmasq.d/`). It points at task 2.1: the routes came back with the rebuild because the Tailscale join carries them, and the resolver configuration did not because nothing but a hand did.
+The proof does not depend on identifying the product. A UDP DNS query sent to `192.0.2.1` — a
+TEST-NET address reserved by RFC 5737, which cannot host a resolver — returns a well-formed
+NXDOMAIN with a forged source address. So do queries to `8.8.8.8`, to `1.1.1.1`, and to a tailnet
+address with no peer behind it. Only the corporate resolver `10.21.32.51` answers truthfully.
+Meanwhile `tcpdump` on the router's `tailscale0` captured **zero packets** while four queries were
+fired at it, and TCP 53, TCP 22 and ICMP to that same address all succeed. UDP 53 is the only
+affected path, and it is intercepted before it leaves the machine.
 
-(One correction to a note carried in EuGo-docint's blocked task: the `tailscale` CLI **is**
-available on this workstation, at `C:\Program Files\Tailscale\tailscale.exe`. `tailscale dns
-status` is what shows the Split DNS routing, and is the right first probe.)
+The workstation observed here runs Tailscale alongside a Palo Alto GlobalProtect client
+(`PanGPS`, adapter `PANGP Virtual Ethernet Adapter Secure`). That is the likely enforcer — DNS
+pinning to the corporate resolver is standard GlobalProtect behaviour — but it is an inference, not
+a measurement: a `svchost` process bound to `0.0.0.0:53` is also present and unexplained. The
+discriminating test is to disconnect GlobalProtect and re-probe `192.0.2.1`; if it stops replying,
+the attribution is confirmed. Corporate VPN policy is not this project's to change, so the
+practical consequence is a documented workaround, not a fix here.
 
-Everything reachable only through a private endpoint is therefore unresolvable from a workstation —
-not one service but all of them: the Foundry account, ACR, blob storage, Postgres, AKS and Key
-Vault all have Split DNS entries pointing at the same router. The immediate casualty is that
-EuGo-docint's live smoke suite cannot run, but that is a symptom, not the scope.
+### Two misreads, kept because they cost time
 
-The deeper problem is that this was hand-built. A rebuild silently dropped it, and nothing detected
-that until someone tried to use it. Restoring it by hand would leave the next rebuild to fail the
-same way.
+Both were reasonable and both were wrong; the pattern is worth more than either conclusion.
+
+1. **"The router runs no resolver"** — concluded from `google.com` failing through it. A bad probe:
+   `dnsmasq` here has per-suffix upstreams, so refusing an out-of-scope name proves nothing. Use an
+   in-scope name.
+2. **"The resolver runs but its config is gone"** — concluded from an in-scope name *also* returning
+   NXDOMAIN through the router, reasoning that identical treatment of in-scope and public names
+   means no per-suffix rules are loaded. The logic was sound; the input was fabricated. Both
+   answers were forged locally and neither query ever reached the router.
+
+The lesson generalises: **an answer that arrives is not evidence that it came from the server you
+asked.** Before concluding anything about a remote resolver, confirm the query reaches it — with a
+capture at the far end, or with the `192.0.2.1` control above. Every symptom here was equally
+consistent with a healthy router, and it was.
+
+### What is actually left
+
+Everything reachable only through a private endpoint remains unresolvable from an affected
+workstation — the Foundry account, ACR, blob storage, Postgres, AKS and Key Vault alike. But that
+is the workstation's DNS interception, not the router. What remains genuinely open on the
+infrastructure is narrower than this change first assumed: the five suffixes the tailnet never
+routes to the router, an auth key sitting in plaintext, and the absence of any check that would
+have caught either.
 
 ## What Changes
 
-The resolver itself needs nothing — it already works. What remains are the two gaps that let this
-break silently and stay broken, plus the coverage hole they masked:
+The resolver needs nothing, and neither does its provisioning — both were verified working on
+2026-08-19. Three items remain, one of them new and more urgent than anything this change
+originally set out to fix:
 
-- **Split DNS gains the missing public suffixes.** Five services are registered *only* in
-  `privatelink.*` form, which never matches a client query, so ACR, blob storage, Cosmos, Search and
-  the cluster API are unresolvable from a workstation regardless of the resolver's health.
-  `dnsmasq` is already configured to serve them — only the client-side routing of those suffixes is
-  missing, so this is one console change away.
-- **The configuration is provisioned with the VM.** This is the actual defect behind the outage:
-  the rebuild produced a router without the tailnet DNS wiring, and nothing noticed. The advertised
-  routes are equally unprotected — correct today by accident of the current instance.
-- **A check that the path works**, so the next silent loss is caught by something other than a
-  developer's failing test run.
+- **The auth key comes out of the cloud-config.** The VM's `runcmd` passes a Tailscale auth key as
+  a plaintext literal, so it is readable by anyone who can reach the instance's user-data or run a
+  command on the VM. It should be revoked and re-issued from a secret reference. This was found
+  while verifying the provisioning and is unrelated to DNS, but it is the highest-severity item
+  here.
+- **Split DNS gains the missing public suffixes.** Five services — ACR, blob storage, Cosmos,
+  Search and the cluster API — are registered *only* in `privatelink.*` form, which never matches a
+  client query, so they are unresolvable from a workstation regardless of the resolver's health.
+  `dnsmasq` already carries public-suffix `server=` lines for all five; only the client-side
+  routing is missing, so this is one console change away.
+- **A check that the path works**, reporting which half failed. This is the item the incident
+  argues for most strongly: three separate diagnoses were attempted from the workstation, two of
+  them wrong, because resolution failure and route failure are indistinguishable from that vantage
+  point and a forged answer is indistinguishable from a real one.
 
-`design.md` records the implementation choice for the resolver. Since a working `dnsmasq`
-configuration already exists, that section now serves to explain why it is kept rather than
-replaced.
+**Withdrawn from this change:** "make the configuration survive a rebuild." The premise was that
+the router had been hand-built and a rebuild silently dropped its DNS wiring. That is false — the
+cloud-config installs `dnsmasq`, writes both `/etc/dnsmasq.d/` files with public-suffix upstreams,
+and advertises `10.60.0.0/16` on join. The config files on disk predate the current boot, so they
+survived it. Group 2 of `tasks.md` is therefore already satisfied; it is kept only so a reviewer
+can confirm the same thing rather than wonder why it vanished.
+
+`design.md` records the implementation choice for the resolver, and stands: the existing `dnsmasq`
+configuration is kept rather than replaced.
 
 ## Capabilities
 

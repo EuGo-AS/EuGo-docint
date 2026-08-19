@@ -1,3 +1,9 @@
+**Scope corrected 2026-08-19.** The workstation symptom that prompted this change — private names
+not resolving — is **not** caused by anything here. A second VPN client on the workstation
+intercepts every UDP 53 query and answers it locally, so queries never reach the router; the router
+itself resolves correctly. See `proposal.md`. What remains below is real but narrower: the five
+unrouted suffixes, the exposed auth key, and the missing detection.
+
 **Execute this in EuGo-infra, not in EuGo-docint.** Nothing here edits a file in this repository;
 the change is staged here only because EuGo-infra is not checked out on this machine. There is no
 `dotnet` gate to run — the verification at the end of each group is a resolution and connection test
@@ -19,19 +25,33 @@ suffixes than the tailnet routes to it. Nothing on the VM needs changing in this
 - [ ] 1.3 Leave the duplicate `privatelink.*` entries alone; tidying them is deferred and would
   confuse this verification.
 
-## 2. Make it survive a rebuild
+## 2. Rebuild survival — already satisfied, confirm only
 
-- [ ] 2.1 Move the configuration into the VM's provisioning definition: the advertised routes **and**
-  the `dnsmasq` package and its `/etc/dnsmasq.d/` config. The routes are equally unprotected today —
-  they are correct by accident of the current instance, not by definition.
-- [ ] 2.2 Carry the existing config's own comment across: the per-suffix upstreams must be
-  registered on the **public** suffixes, because the `privatelink.*` form is only ever an
-  intermediate hop the resolver expands internally and matches nothing a client asks for.
-- [ ] 2.3 Rebuild or reprovision the router from that definition and repeat 1.2 with no manual step
-  in between. This is the requirement — an unrepeated rebuild leaves the actual defect unfixed, and
-  the change should not be considered done without it.
+Verified 2026-08-19: the cloud-config installs `dnsmasq`, writes `/etc/dnsmasq.d/00-listen.conf`
+and `/etc/dnsmasq.d/azure-privatelink.conf` (public-suffix `server=` lines for all ten suffixes),
+and joins with `--advertise-routes=10.60.0.0/16`. The premise that this was hand-built was wrong.
+Confirm rather than rebuild.
+
+- [x] 2.1 Configuration lives in the VM's provisioning definition — routes **and** the `dnsmasq`
+  package and its `/etc/dnsmasq.d/` config. Confirmed present in the cloud-config.
+- [x] 2.2 The per-suffix upstreams are registered on the **public** suffixes. Confirmed: the
+  config's own comment says so, and the lines are there.
+- [x] 2.3 The config survived the 2026-08-19 boot — both files predate it and `dnsmasq` answered
+  correctly afterwards. A from-scratch reprovision was **not** performed; if that stricter proof is
+  wanted, it is the one part of this group still open.
 - [ ] 2.4 Note in the provisioning definition that the Split DNS entries live in the Tailscale admin
   console and are not reproduced by a rebuild, including what they must be set to.
+
+## 2b. Get the auth key out of the cloud-config
+
+Found while confirming the above, unrelated to DNS, and the highest-severity item in this change.
+
+- [ ] 2b.1 Revoke the Tailscale auth key currently embedded as a plaintext literal in the VM's
+  `runcmd`. Treat it as compromised: anyone with instance user-data access or command execution on
+  the VM can read it and join the tailnet with it.
+- [ ] 2b.2 Re-provision using a secret reference rather than a literal, and confirm the key value
+  no longer appears in `/var/lib/cloud/instance/cloud-config.txt`.
+- [ ] 2b.3 Prefer an ephemeral, pre-approved, tagged key so a leaked value expires on its own.
 
 ## 3. Detection
 

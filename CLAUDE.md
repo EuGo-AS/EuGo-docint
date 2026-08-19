@@ -138,6 +138,29 @@ Tailscale installs and reports the public address even when the tunnel is workin
 `dotnet test` **from Windows, not WSL** — WSL2 under NAT networking inherits neither the tailnet
 route nor the NRPT rules, so the endpoints will not resolve there.
 
+**A third trap, and the worst of them (found 2026-08-19): a second VPN client can intercept every
+UDP DNS query and forge the answer.** On a workstation running Tailscale alongside a corporate
+client (GlobalProtect was the one observed), queries to any resolver other than the corporate one
+are answered locally with NXDOMAIN — including the queries Tailscale's own resolver makes to the
+subnet router, so Split DNS silently never works. It looks exactly like a broken router, and it
+cost two wrong diagnoses before being caught. `Resolve-DnsName` cannot see through it: the forged
+answer is well-formed, arrives instantly, and carries a spoofed source address.
+
+The one-line discriminator, before blaming anything on the far end:
+
+```powershell
+Resolve-DnsName google.com -Server 192.0.2.1    # TEST-NET; must NOT answer
+```
+
+`192.0.2.1` is reserved by RFC 5737 and cannot host a resolver. **Any** reply proves local
+interception, and while it is active no `10.60.5.x` answer is reachable no matter how healthy the
+tunnel is — check this before touching the router or the tailnet config. Non-DNS traffic is
+unaffected, so `Test-NetConnection 10.60.5.4 -Port 443` still succeeds and is the honest test of
+whether the route works. Workarounds: disconnect the intercepting client, or map the two Foundry
+hostnames to `10.60.5.4` / `10.60.5.5` in `hosts` (the certificate SANs are the public names, so
+TLS still verifies) — the latter is temporary, since those addresses change if the private
+endpoints are recreated.
+
 Both endpoints share the one resource, on two hostnames:
 `https://aif-eugo-swc.cognitiveservices.azure.com/` for Document Intelligence and
 `https://aif-eugo-swc.openai.azure.com/` for Azure OpenAI. See "Azure resource shape" in
