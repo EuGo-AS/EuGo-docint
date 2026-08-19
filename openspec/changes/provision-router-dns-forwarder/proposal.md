@@ -43,7 +43,7 @@ contradiction of the 2026-08-18 finding: that finding was taken from a different
 the failure mode this change exists to prevent, so treat it as evidence for tasks 2.1 and 2.3
 rather than as a new root cause. It is deliberately **not** recorded as a diagnosis of *why*
 `dnsmasq` is not answering: `Resolve-DnsName` collapses NXDOMAIN, REFUSED and no-config into one
-message, and that distinction can only be drawn on the VM itself.
+message. A follow-up probe does narrow it, though, and the narrowing is worth having: the router answers on port 53 and returns **NXDOMAIN for every name it is asked**, the in-scope Foundry hostname and `google.com` alike. Under this design's own D1 rule that is the discriminator — a correctly configured split resolver refuses a public name while answering an in-scope one, so identical treatment of both means no per-suffix rules are loaded at all. The shape that produces it is `dnsmasq` running with `no-resolv` and no `server=` lines: the process survived, its `/etc/dnsmasq.d/` configuration did not. That is a strong inference rather than proof — it is read from rcodes through Windows `nslookup`, which can blur REFUSED into "Non-existent domain" — and confirming it costs one read-only look on the VM (`systemctl status dnsmasq`, `ls /etc/dnsmasq.d/`). It points at task 2.1: the routes came back with the rebuild because the Tailscale join carries them, and the resolver configuration did not because nothing but a hand did.
 
 (One correction to a note carried in EuGo-docint's blocked task: the `tailscale` CLI **is**
 available on this workstation, at `C:\Program Files\Tailscale\tailscale.exe`. `tailscale dns
