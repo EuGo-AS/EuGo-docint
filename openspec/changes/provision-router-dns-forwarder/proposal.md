@@ -8,7 +8,7 @@
 The Tailscale subnet router `vm-eugo-vpn-swc` is the developer path into `vnet-eugo-hub-swc`, and
 it is the only path for a workstation: every EuGo Azure resource of consequence is private-endpoint
 only. It stopped resolving names, and the failure survived a repair attempt, so it is worth stating
-exactly what is and is not broken (all verified 2026-08-18):
+exactly what is and is not broken (verified 2026-08-18, with the DNS row re-measured 2026-08-19):
 
 | Layer | State |
 | --- | --- |
@@ -16,7 +16,7 @@ exactly what is and is not broken (all verified 2026-08-18):
 | Route `10.60.0.0/16` | Healthy — advertised as a primary route; TCP 443 reaches `10.60.5.4`, `.5`, `.6` |
 | TLS at the private endpoints | Healthy — Microsoft cert, SANs `*.cognitiveservices.azure.com` / `*.openai.azure.com` |
 | Private DNS zones | Healthy — linked to both `vnet-eugo-hub-swc` and `vnet-eugo-spoke-swc` |
-| DNS service on the router | Healthy — `dnsmasq` answers, forwarding the **public** suffixes to `168.63.129.16`, and returns `10.60.5.4` for the Document Intelligence hostname |
+| **DNS service on the router** | **Regressed since 2026-08-18 — an in-scope query to `100.111.128.91` now returns NXDOMAIN (see the dated observation below)** |
 | **Split DNS suffix coverage** | **Incomplete — five services are registered only in `privatelink.*` form** |
 | **Reproducibility** | **Unverified — the working configuration is not known to survive a rebuild** |
 
@@ -30,6 +30,24 @@ failing through it. That was a bad probe. `dnsmasq` here is a *split* resolver �
 with per-suffix upstreams and no general one, so refusing a public name is correct behaviour, not a
 fault. Probing it with a name it is meant to serve shows it working. Any future diagnosis of this
 path must use an in-scope name.
+
+**Re-measured 2026-08-19 from a workstation on the tailnet, and it no longer matches the table's
+earlier reading.** The route half is still healthy — TCP 443 to `10.60.5.4` succeeds — but
+`aif-eugo-swc.cognitiveservices.azure.com`, an **in-scope** name and therefore a valid probe under
+the rule above, returns NXDOMAIN when queried directly at `100.111.128.91`; so does the
+`.openai.azure.com` hostname, and so does the `privatelink.*` form. Split DNS in the admin console
+is correct and points at the live router. Two details make this a regression rather than a
+contradiction of the 2026-08-18 finding: that finding was taken from a different vantage point
+(on the VM), and the node now presents to the tailnet as **`vm-eugo-vpn-swc-1`**, not
+`vm-eugo-vpn-swc`. A renamed instance carrying a working route but no working resolver is precisely
+the failure mode this change exists to prevent, so treat it as evidence for tasks 2.1 and 2.3
+rather than as a new root cause. It is deliberately **not** recorded as a diagnosis of *why*
+`dnsmasq` is not answering: `Resolve-DnsName` collapses NXDOMAIN, REFUSED and no-config into one
+message, and that distinction can only be drawn on the VM itself.
+
+(One correction to a note carried in EuGo-docint's blocked task: the `tailscale` CLI **is**
+available on this workstation, at `C:\Program Files\Tailscale\tailscale.exe`. `tailscale dns
+status` is what shows the Split DNS routing, and is the right first probe.)
 
 Everything reachable only through a private endpoint is therefore unresolvable from a workstation —
 not one service but all of them: the Foundry account, ACR, blob storage, Postgres, AKS and Key
