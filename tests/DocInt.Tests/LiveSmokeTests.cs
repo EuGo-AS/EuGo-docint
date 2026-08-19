@@ -14,7 +14,7 @@ namespace DocInt.Tests;
 /// Export these in a shell with no leftover DocumentIntelligence__* or AzureOpenAI__* variables:
 /// those are retired, and the host now refuses to start while one carries a value.
 /// </summary>
-public class LiveSmokeTests : IClassFixture<DocIntAppFactory>
+public class LiveSmokeTests : IClassFixture<LiveAppFactory>
 {
     private static bool LiveEnabled =>
         Environment.GetEnvironmentVariable("DOCINT_LIVE_TESTS") == "1";
@@ -27,9 +27,9 @@ public class LiveSmokeTests : IClassFixture<DocIntAppFactory>
     private static bool HasVision =>
         !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("Foundry__OpenAIEndpoint"));
 
-    private readonly DocIntAppFactory _factory;
+    private readonly LiveAppFactory _factory;
 
-    public LiveSmokeTests(DocIntAppFactory factory) => _factory = factory;
+    public LiveSmokeTests(LiveAppFactory factory) => _factory = factory;
 
     private async Task<FileResult> ExtractOne(string fixture, string contentType)
     {
