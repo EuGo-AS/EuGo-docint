@@ -25,7 +25,7 @@ public class LiveAppFactory : DocIntAppFactory
         base.ConfigureWebHost(builder);
     }
 
-    /// <summary>Copies Foundry__Key from the environment onto the builder, if it carries a value.</summary>
+    /// <summary>Copies the environment variable matching <paramref name="key"/> onto the builder, if it carries a value.</summary>
     private static void Pass(IWebHostBuilder builder, string key)
     {
         var value = Environment.GetEnvironmentVariable(key.Replace(":", "__"));
